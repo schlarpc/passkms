@@ -13,6 +13,16 @@ use passkey_types::ctap2::{Aaguid, AttestedCredentialData, AuthenticatorData, Fl
 
 use crate::credential_store::CredentialStore;
 
+/// AAGUID identifying passkms as an authenticator model.
+///
+/// This value is embedded in attested credential data during registration
+/// and must match the value reported in the CTAP2 authenticatorGetInfo response.
+pub const PASSKMS_AAGUID: [u8; 16] = [
+    0x70, 0x61, 0x73, 0x73, // "pass"
+    0x6b, 0x6d, 0x73, 0x00, // "kms\0"
+    0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11,
+];
+
 /// Errors from authenticator operations.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthenticatorError {
@@ -104,17 +114,22 @@ pub struct Authenticator {
 impl Authenticator {
     /// Create a new authenticator with the given credential store.
     ///
-    /// Uses an all-zeros AAGUID (standard for self/no attestation).
+    /// Uses the passkms AAGUID to identify this authenticator model.
     pub fn new(store: CredentialStore) -> Self {
         Self {
             store,
-            aaguid: Aaguid::new_empty(),
+            aaguid: Aaguid::from(PASSKMS_AAGUID),
         }
     }
 
     /// Create a new authenticator with a custom AAGUID.
     pub fn with_aaguid(store: CredentialStore, aaguid: Aaguid) -> Self {
         Self { store, aaguid }
+    }
+
+    /// Access the underlying credential store.
+    pub fn store(&self) -> &CredentialStore {
+        &self.store
     }
 
     /// Perform a makeCredential operation (registration).

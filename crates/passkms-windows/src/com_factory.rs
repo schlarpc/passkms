@@ -22,11 +22,18 @@ pub const PASSKEY_CLSID: GUID = GUID::from_u128(0xa3b2c1d0_e4f5_6789_abcd_ef0123
 #[implement(IClassFactory)]
 pub struct PasskeyClassFactory {
     runtime: Arc<tokio::runtime::Runtime>,
+    authenticator: Arc<passkms_core::Authenticator>,
 }
 
 impl PasskeyClassFactory {
-    pub fn new(runtime: Arc<tokio::runtime::Runtime>) -> Self {
-        Self { runtime }
+    pub fn new(
+        runtime: Arc<tokio::runtime::Runtime>,
+        authenticator: Arc<passkms_core::Authenticator>,
+    ) -> Self {
+        Self {
+            runtime,
+            authenticator,
+        }
     }
 }
 
@@ -68,7 +75,8 @@ impl IClassFactory_Impl for PasskeyClassFactory_Impl {
         }
 
         tracing::debug!("creating new PluginAuthenticator instance");
-        let authenticator = PluginAuthenticator::new(self.runtime.clone());
+        let authenticator =
+            PluginAuthenticator::new(self.runtime.clone(), self.authenticator.clone());
         let unknown: IUnknown = authenticator.into();
 
         let result = unsafe { unknown.query(riid_val, ppvobject).ok() };

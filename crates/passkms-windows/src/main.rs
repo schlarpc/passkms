@@ -119,6 +119,7 @@ fn main() {
 
             tracing::debug!("building tokio runtime");
             let runtime = Arc::new(build_runtime());
+            let authenticator = Arc::new(build_authenticator(&runtime));
 
             // Ensure plugin is registered with Windows WebAuthn
             tracing::debug!("checking plugin registration state");
@@ -129,19 +130,20 @@ fn main() {
 
             // Sync credentials from KMS to Windows passkey picker
             tracing::debug!("starting credential sync from KMS");
-            if let Err(e) = registration::sync_credentials(&runtime) {
+            if let Err(e) = registration::sync_credentials(&runtime, authenticator.store()) {
                 tracing::warn!(error = %e, "credential sync failed, continuing");
             }
 
             tracing::debug!("entering COM server loop");
-            run_com_server(runtime);
+            run_com_server(runtime, authenticator);
         }
         Mode::PluginActivated => {
             tracing::info!("COM activation mode (-PluginActivated)");
             tracing::debug!("building tokio runtime");
             let runtime = Arc::new(build_runtime());
+            let authenticator = Arc::new(build_authenticator(&runtime));
             tracing::debug!("entering COM server loop");
-            run_com_server(runtime);
+            run_com_server(runtime, authenticator);
         }
     }
 }
@@ -153,8 +155,20 @@ fn build_runtime() -> tokio::runtime::Runtime {
         .expect("failed to create tokio runtime")
 }
 
+/// Build the passkms-core Authenticator, loading AWS config from the environment.
+fn build_authenticator(runtime: &tokio::runtime::Runtime) -> passkms_core::Authenticator {
+    runtime.block_on(async {
+        tracing::debug!("loading AWS config");
+        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        tracing::debug!(region = ?config.region(), "AWS config loaded");
+        let kms_client = aws_sdk_kms::Client::new(&config);
+        let store = passkms_core::CredentialStore::new(kms_client);
+        passkms_core::Authenticator::new(store)
+    })
+}
+
 /// Register COM class factory and run the message loop.
-fn run_com_server(runtime: Arc<tokio::runtime::Runtime>) {
+fn run_com_server(runtime: Arc<tokio::runtime::Runtime>, authenticator: Arc<passkms_core::Authenticator>) {
     unsafe {
         // Initialize COM for multi-threaded apartment
         tracing::debug!("initializing COM (COINIT_MULTITHREADED)");
@@ -164,7 +178,7 @@ fn run_com_server(runtime: Arc<tokio::runtime::Runtime>) {
 
         // Create and register our class factory
         tracing::debug!("creating PasskeyClassFactory");
-        let factory = PasskeyClassFactory::new(runtime);
+        let factory = PasskeyClassFactory::new(runtime, authenticator);
         let factory_unknown: IUnknown = factory.into();
 
         let cookie = CoRegisterClassObject(

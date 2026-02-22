@@ -19,12 +19,9 @@ use crate::util::{pcwstr, wide_nul};
 /// NTE_NOT_FOUND: The specified item was not found. (0x80090011)
 const NTE_NOT_FOUND: HRESULT = HRESULT(0x80090011_u32 as i32);
 
-/// AAGUID identifying passkms as an authenticator model (fixed).
-const PASSKMS_AAGUID: [u8; 16] = [
-    0x70, 0x61, 0x73, 0x73, // "pass"
-    0x6b, 0x6d, 0x73, 0x00, // "kms\0"
-    0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11,
-];
+/// AAGUID identifying passkms as an authenticator model. Shared with passkms-core
+/// to ensure the authenticatorGetInfo response matches the attested credential data.
+const PASSKMS_AAGUID: [u8; 16] = passkms_core::PASSKMS_AAGUID;
 
 const REGISTRY_KEY: &str = "Software\\passkms";
 const REGISTRY_VALUE_OP_SIGN_KEY: &str = "OpSignPubKey";
@@ -149,15 +146,8 @@ pub fn ensure_registered() -> Result<(), HRESULT> {
 /// in the Windows passkey selection UI.
 pub fn sync_credentials(
     runtime: &tokio::runtime::Runtime,
+    store: &passkms_core::CredentialStore,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::debug!("loading AWS config for credential sync");
-    let config = runtime.block_on(aws_config::load_defaults(
-        aws_config::BehaviorVersion::latest(),
-    ));
-    tracing::debug!(region = ?config.region(), "AWS config loaded for credential sync");
-    let kms_client = aws_sdk_kms::Client::new(&config);
-    let store = passkms_core::CredentialStore::new(kms_client);
-
     tracing::debug!("listing all credentials from KMS");
     let credentials = runtime.block_on(store.list_all_credentials())?;
 

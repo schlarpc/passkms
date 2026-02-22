@@ -13,15 +13,23 @@ use crate::util::{wide_nul, wide_ptr_to_string};
 
 /// The plugin authenticator COM object.
 ///
-/// Each instance holds a reference to the tokio runtime for async KMS operations.
+/// Each instance shares a reference to the tokio runtime (for blocking on async
+/// operations) and the passkms-core `Authenticator` (for KMS-backed FIDO2 logic).
 #[implement(IPluginAuthenticator)]
 pub struct PluginAuthenticator {
     runtime: Arc<tokio::runtime::Runtime>,
+    authenticator: Arc<passkms_core::Authenticator>,
 }
 
 impl PluginAuthenticator {
-    pub fn new(runtime: Arc<tokio::runtime::Runtime>) -> Self {
-        Self { runtime }
+    pub fn new(
+        runtime: Arc<tokio::runtime::Runtime>,
+        authenticator: Arc<passkms_core::Authenticator>,
+    ) -> Self {
+        Self {
+            runtime,
+            authenticator,
+        }
     }
 }
 
@@ -154,17 +162,10 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             discoverable,
         };
 
-        tracing::debug!("delegating MakeCredential to passkms-core via tokio runtime");
-        let result = self.runtime.block_on(async {
-            tracing::debug!("loading AWS config");
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            tracing::debug!(region = ?config.region(), "AWS config loaded");
-            let kms_client = aws_sdk_kms::Client::new(&config);
-            let store = passkms_core::CredentialStore::new(kms_client);
-            let authenticator = passkms_core::Authenticator::new(store);
-            tracing::debug!("calling authenticator.make_credential");
-            authenticator.make_credential(&core_request).await
-        });
+        tracing::debug!("delegating MakeCredential to passkms-core");
+        let result = self
+            .runtime
+            .block_on(self.authenticator.make_credential(&core_request));
 
         match result {
             Ok(core_response) => {
@@ -331,17 +332,10 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             allow_list,
         };
 
-        tracing::debug!("delegating GetAssertion to passkms-core via tokio runtime");
-        let result = self.runtime.block_on(async {
-            tracing::debug!("loading AWS config");
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            tracing::debug!(region = ?config.region(), "AWS config loaded");
-            let kms_client = aws_sdk_kms::Client::new(&config);
-            let store = passkms_core::CredentialStore::new(kms_client);
-            let authenticator = passkms_core::Authenticator::new(store);
-            tracing::debug!("calling authenticator.get_assertion");
-            authenticator.get_assertion(&core_request).await
-        });
+        tracing::debug!("delegating GetAssertion to passkms-core");
+        let result = self
+            .runtime
+            .block_on(self.authenticator.get_assertion(&core_request));
 
         match result {
             Ok(assertions) => {
