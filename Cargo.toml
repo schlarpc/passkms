@@ -1,50 +1,96 @@
-[package]
-name = "rust-flake"
+[workspace]
+resolver = "2"
+members = [
+    "crates/passkms-core",
+    "crates/passkms-server",
+    "crates/passkms-windows",
+]
+# Only build core and server by default; passkms-windows requires Windows target
+default-members = [
+    "crates/passkms-core",
+    "crates/passkms-server",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 authors = ["Chaz Schlarp"]
 license = "MIT"
-description = "A Rust application built with Nix flakes"
-repository = "https://github.com/schlarpc/rust-flake"
-readme = "README.md"
-keywords = ["nix", "flake"]
-categories = ["command-line-utilities"]
+repository = "https://github.com/schlarpc/passkms"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace.dependencies]
+# AWS SDK
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-kms = "1"
 
-[dependencies]
-# Production dependencies go here
+# Async runtime
+tokio = { version = "1", features = ["full"] }
 
-[dev-dependencies]
-# Dev-only dependencies (tests, benchmarks) - these don't leak to production builds
+# WebAuthn/CTAP2 data structures
+passkey-types = "0.5"
 
-[lints.rust]
-# Rust compiler lints
+# COSE key encoding
+coset = "0.4"
+
+# CBOR serialization
+ciborium = "0.2"
+
+# Elliptic curve crypto
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+sha2 = "0.10"
+ecdsa = { version = "0.16", features = ["der"] }
+
+# Signing traits
+signature = "2"
+async-signature = "0.5"
+
+# Encoding
+data-encoding = "2"
+hex = "0.4"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+
+# Error handling
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Windows COM
+windows = { version = "0.62", features = [
+    "Win32_System_Com",
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-core = "0.62"
+windows-interface = "0.59"
+
+# Internal crates
+passkms-core = { path = "crates/passkms-core" }
+
+[workspace.lints.rust]
 unsafe_code = "warn"
-missing_docs = "allow"  # Enable when API stabilizes
+missing_docs = "allow"
 
-[lints.clippy]
-# Clippy lint groups (lower priority so individual lints can override)
+[workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
-pedantic = { level = "allow", priority = -1 }  # Enable selectively as needed
-nursery = { level = "allow", priority = -1 }   # Enable selectively as needed
-
-# Individual clippy lints worth enabling
+pedantic = { level = "allow", priority = -1 }
+nursery = { level = "allow", priority = -1 }
 enum_glob_use = "warn"
 cast_possible_truncation = "warn"
 cast_sign_loss = "warn"
 cast_possible_wrap = "warn"
 ptr_as_ptr = "warn"
 redundant_closure_for_method_calls = "warn"
-unwrap_used = "allow"  # Warn in production code, allow in examples/tests
+unwrap_used = "allow"
 
 [profile.dev]
-# Fast compile times for development
 opt-level = 0
 debug = true
 
 [profile.release]
-# Optimize for binary size and performance
 opt-level = 3
 lto = "thin"
 codegen-units = 1
@@ -52,6 +98,5 @@ strip = true
 panic = "abort"
 
 [profile.test]
-# Keep some debug info for test failures
 opt-level = 0
 debug = true

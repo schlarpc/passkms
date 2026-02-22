@@ -1,0 +1,21 @@
+[package]
+name = "passkms-server"
+description = "Headless FIDO2 authentication service using passkms-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+passkms-core.workspace = true
+aws-config.workspace = true
+aws-sdk-kms.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[lints]
+workspace = true

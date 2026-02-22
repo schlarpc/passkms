@@ -35,6 +35,9 @@ htmlcov/
 *~
 .DS_Store
 
+# xwin SDK cache (cargo-xwin downloads)
+.xwin-cache/
+
 # Local environment overrides (if any)
 .env.local
 .envrc.local

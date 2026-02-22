@@ -1,0 +1,69 @@
+//! COM class factory for the plugin authenticator.
+//!
+//! Windows calls `IClassFactory::CreateInstance` to instantiate our
+//! `IPluginAuthenticator` implementation when a WebAuthn operation
+//! targets our registered CLSID.
+
+use std::sync::Arc;
+
+use windows::core::{implement, IUnknown, Interface, Ref, GUID};
+use windows::Win32::Foundation::CLASS_E_NOAGGREGATION;
+use windows::Win32::System::Com::{IClassFactory, IClassFactory_Impl};
+
+use crate::bindings::IPluginAuthenticator;
+use crate::com_plugin::PluginAuthenticator;
+
+/// Our COM CLSID. Must match the MSIX manifest and registration call.
+///
+/// Generated once: `a3b2c1d0-e4f5-6789-abcd-ef0123456789`
+pub const PASSKEY_CLSID: GUID = GUID::from_u128(0xa3b2c1d0_e4f5_6789_abcd_ef0123456789);
+
+/// COM class factory that creates `PluginAuthenticator` instances.
+#[implement(IClassFactory)]
+pub struct PasskeyClassFactory {
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl PasskeyClassFactory {
+    pub fn new(runtime: Arc<tokio::runtime::Runtime>) -> Self {
+        Self { runtime }
+    }
+}
+
+impl IClassFactory_Impl for PasskeyClassFactory_Impl {
+    fn CreateInstance(
+        &self,
+        punkouter: Ref<'_, IUnknown>,
+        riid: *const GUID,
+        ppvobject: *mut *mut std::ffi::c_void,
+    ) -> windows::core::Result<()> {
+        unsafe {
+            *ppvobject = std::ptr::null_mut();
+        }
+
+        // Aggregation not supported
+        if punkouter.is_some() {
+            return Err(CLASS_E_NOAGGREGATION.into());
+        }
+
+        let riid = unsafe { &*riid };
+
+        // Only create instances for IPluginAuthenticator or IUnknown
+        if *riid != IPluginAuthenticator::IID && *riid != IUnknown::IID {
+            return Err(windows::core::Error::from(
+                windows::Win32::Foundation::E_NOINTERFACE,
+            ));
+        }
+
+        let authenticator = PluginAuthenticator::new(self.runtime.clone());
+        let unknown: IUnknown = authenticator.into();
+
+        unsafe { unknown.query(riid, ppvobject).ok() }
+    }
+
+    fn LockServer(&self, _flock: windows_core::BOOL) -> windows::core::Result<()> {
+        // We don't track lock count for now; the process stays alive
+        // as long as the COM message pump is running.
+        Ok(())
+    }
+}

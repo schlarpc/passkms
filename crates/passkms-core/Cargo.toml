@@ -1,0 +1,36 @@
+[package]
+name = "passkms-core"
+description = "Platform-agnostic FIDO2 authenticator core backed by AWS KMS"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aws-config.workspace = true
+aws-sdk-kms.workspace = true
+tokio.workspace = true
+passkey-types.workspace = true
+coset.workspace = true
+ciborium.workspace = true
+p256.workspace = true
+sha2.workspace = true
+ecdsa.workspace = true
+signature.workspace = true
+async-signature.workspace = true
+data-encoding.workspace = true
+hex.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+rand = "0.8"
+aws-config.workspace = true
+p256 = { workspace = true, features = ["ecdsa"] }
+ecdsa = { workspace = true, features = ["verifying"] }
+
+[lints]
+workspace = true

@@ -1,5 +1,5 @@
 {
-  description = "A Rust application built with Nix flakes using Crane";
+  description = "passkms - FIDO2 passkey authenticator backed by AWS KMS";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -30,12 +30,12 @@
         overlays = [ rust-overlay.overlays.default ];
       };
 
-      # Rust toolchain - uses stable from rust-toolchain.toml if present,
-      # otherwise defaults to latest stable
+      # Rust toolchain (with Windows MSVC cross-compilation target)
       rustToolchainFor = system:
         let pkgs = pkgsFor system;
         in pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" "llvm-tools-preview" ];
+          targets = [ "x86_64-pc-windows-msvc" ];
         };
 
       # Create crane lib for each system
@@ -46,25 +46,24 @@
         in
         (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-      # Common arguments for all crane builds
+      # Common arguments for native builds (core + server only)
       commonArgsFor = system:
         let
           pkgs = pkgsFor system;
           craneLib = cranelibFor system;
         in
         {
+          pname = "passkms";
           src = craneLib.cleanCargoSource ./.;
           strictDeps = true;
 
           buildInputs = [
-            # Add additional build inputs here
           ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.libiconv
             pkgs.darwin.apple_sdk.frameworks.Security
           ];
 
           nativeBuildInputs = [
-            # Add additional native build inputs here
           ];
         };
 
@@ -73,30 +72,107 @@
         let craneLib = cranelibFor system;
         in craneLib.buildDepsOnly (commonArgsFor system);
 
-    in
-    {
-      # The main package output
-      packages = eachSystem (system:
+      # Windows SDK via xwin (fixed-output derivation for reproducibility)
+      # SDK 10.0.26100, CRT 14.44.17.14
+      windowsSdkFor = system:
+        let pkgs = pkgsFor system;
+        in pkgs.stdenvNoCC.mkDerivation {
+          name = "windows-sdk";
+          nativeBuildInputs = [ pkgs.xwin ];
+          outputHashAlgo = "sha256";
+          outputHashMode = "recursive";
+          outputHash = "sha256-C6lv6HS87LOu/gaA/bdcOKrTW+fkb9vWnVRRqpZHSUM=";
+          buildCommand = ''
+            export HOME=$(mktemp -d)
+            xwin --accept-license --manifest-version 17 splat --output $out
+          '';
+        };
+
+      # MSVC cross-compilation environment variables
+      msvcEnvFor = system:
         let
           pkgs = pkgsFor system;
+          windowsSdk = windowsSdkFor system;
+          clangMajor = pkgs.lib.versions.major pkgs.llvmPackages.clang-unwrapped.version;
+        in
+        {
+          CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc";
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "lld-link";
+          CC_x86_64_pc_windows_msvc = "clang-cl";
+          CXX_x86_64_pc_windows_msvc = "clang-cl";
+          AR_x86_64_pc_windows_msvc = "llvm-lib";
+          CFLAGS_x86_64_pc_windows_msvc = builtins.concatStringsSep " " [
+            "--target=x86_64-pc-windows-msvc"
+            "-Wno-unused-command-line-argument"
+            "-fuse-ld=lld-link"
+            "/imsvc${pkgs.llvmPackages.clang-unwrapped.lib}/lib/clang/${clangMajor}/include"
+            "/imsvc${windowsSdk}/crt/include"
+            "/imsvc${windowsSdk}/sdk/include/ucrt"
+            "/imsvc${windowsSdk}/sdk/include/um"
+            "/imsvc${windowsSdk}/sdk/include/shared"
+          ];
+          CXXFLAGS_x86_64_pc_windows_msvc = builtins.concatStringsSep " " [
+            "--target=x86_64-pc-windows-msvc"
+            "-Wno-unused-command-line-argument"
+            "-fuse-ld=lld-link"
+            "/imsvc${pkgs.llvmPackages.clang-unwrapped.lib}/lib/clang/${clangMajor}/include"
+            "/imsvc${windowsSdk}/crt/include"
+            "/imsvc${windowsSdk}/sdk/include/ucrt"
+            "/imsvc${windowsSdk}/sdk/include/um"
+            "/imsvc${windowsSdk}/sdk/include/shared"
+          ];
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = builtins.concatStringsSep " " [
+            "-Clinker-flavor=lld-link"
+            "-Lnative=${windowsSdk}/crt/lib/x86_64"
+            "-Lnative=${windowsSdk}/sdk/lib/um/x86_64"
+            "-Lnative=${windowsSdk}/sdk/lib/ucrt/x86_64"
+          ];
+        };
+
+      # Cross-compilation build tools
+      crossBuildInputsFor = system:
+        let pkgs = pkgsFor system;
+        in [
+          pkgs.llvmPackages.clang-unwrapped
+          pkgs.llvmPackages.lld
+          pkgs.llvmPackages.llvm
+        ];
+
+    in
+    {
+      # The main package outputs
+      packages = eachSystem (system:
+        let
           craneLib = cranelibFor system;
           commonArgs = commonArgsFor system;
           cargoArtifacts = cargoArtifactsFor system;
         in
         {
+          # Build default workspace members (core + server)
           default = craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
-            # Only run tests during the check phase, not during build
             doCheck = false;
           });
 
-          rust-flake = self.packages.${system}.default;
+          passkms-server = craneLib.buildPackage (commonArgs // {
+            inherit cargoArtifacts;
+            cargoExtraArgs = "-p passkms-server";
+            doCheck = false;
+          });
+
+          # Windows cross-compiled build
+          passkms-windows = craneLib.buildPackage ((commonArgs // {
+            pname = "passkms-windows";
+            cargoExtraArgs = "-p passkms-windows";
+            nativeBuildInputs = crossBuildInputsFor system;
+            # Tests can't run on Linux
+            doCheck = false;
+          }) // msvcEnvFor system);
         });
 
       # Checks run by `nix flake check`
       checks = eachSystem (system:
         let
-          pkgs = pkgsFor system;
           craneLib = cranelibFor system;
           commonArgs = commonArgsFor system;
           cargoArtifacts = cargoArtifactsFor system;
@@ -160,6 +236,12 @@
 
               # Macro expansion (debugging)
               pkgs.cargo-expand
+
+              # Windows cross-compilation
+              pkgs.cargo-xwin
+              pkgs.llvmPackages.clang-unwrapped  # clang-cl
+              pkgs.llvmPackages.lld              # lld-link
+              pkgs.llvmPackages.llvm             # llvm-lib
 
               # nix-direnv for this flake's shell
               nix-direnv.packages.${system}.default

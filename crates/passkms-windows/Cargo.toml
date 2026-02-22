@@ -1,0 +1,22 @@
+[package]
+name = "passkms-windows"
+description = "Windows WebAuthn plugin authenticator backed by AWS KMS"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+passkms-core.workspace = true
+aws-config.workspace = true
+aws-sdk-kms.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+windows.workspace = true
+windows-core.workspace = true
+windows-interface.workspace = true
+
+[lints]
+workspace = true
