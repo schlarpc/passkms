@@ -106,17 +106,17 @@ impl CredentialStore {
                 .tag_key(TAG_MANAGED)
                 .tag_value("true")
                 .build()
-                .unwrap(),
+                .expect("tag_key and tag_value both set"),
             Tag::builder()
                 .tag_key(TAG_RP_ID)
                 .tag_value(rp_id)
                 .build()
-                .unwrap(),
+                .expect("tag_key and tag_value both set"),
             Tag::builder()
                 .tag_key(TAG_USER_HANDLE)
                 .tag_value(&user_handle_b64)
                 .build()
-                .unwrap(),
+                .expect("tag_key and tag_value both set"),
         ];
 
         if let Some(name) = user_name {

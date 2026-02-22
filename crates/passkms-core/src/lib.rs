@@ -1,8 +1,7 @@
-pub mod cose;
-pub mod credential_store;
-pub mod kms_signer;
-
 mod authenticator;
+mod cose;
+mod credential_store;
+mod kms_signer;
 
 pub use authenticator::{
     Authenticator, AuthenticatorError, GetAssertionRequest, GetAssertionResponse,

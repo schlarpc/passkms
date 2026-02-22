@@ -252,7 +252,6 @@
 
             # Environment variables for development
             RUST_BACKTRACE = "1";
-            RUST_LOG = "debug";
           };
         });
 

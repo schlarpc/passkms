@@ -38,6 +38,10 @@ pub enum AuthenticatorError {
     #[error("no matching credential found")]
     NoCredential,
 
+    /// Invalid client data hash length (expected 32 bytes for SHA-256).
+    #[error("invalid client data hash length: expected 32, got {0}")]
+    InvalidClientDataHash(usize),
+
     /// Internal error building authenticator data.
     #[error("internal: {0}")]
     Internal(String),
@@ -134,6 +138,13 @@ impl Authenticator {
         &self,
         request: &MakeCredentialRequest,
     ) -> Result<MakeCredentialResponse, AuthenticatorError> {
+        // 0. Validate client data hash length (must be SHA-256 = 32 bytes)
+        if request.client_data_hash.len() != 32 {
+            return Err(AuthenticatorError::InvalidClientDataHash(
+                request.client_data_hash.len(),
+            ));
+        }
+
         // 1. Check exclude list: if any credential already exists, reject
         for cred_id_bytes in &request.exclude_list {
             let cred_id = match String::from_utf8(cred_id_bytes.clone()) {
@@ -216,6 +227,13 @@ impl Authenticator {
         &self,
         request: &GetAssertionRequest,
     ) -> Result<Vec<GetAssertionResponse>, AuthenticatorError> {
+        // 0. Validate client data hash length (must be SHA-256 = 32 bytes)
+        if request.client_data_hash.len() != 32 {
+            return Err(AuthenticatorError::InvalidClientDataHash(
+                request.client_data_hash.len(),
+            ));
+        }
+
         // 1. Find matching credentials
         let matches = if request.allow_list.is_empty() {
             // Discoverable flow: enumerate all credentials for this RP

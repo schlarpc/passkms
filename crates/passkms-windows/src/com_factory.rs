@@ -92,8 +92,9 @@ impl IClassFactory_Impl for PasskeyClassFactory_Impl {
 
     fn LockServer(&self, flock: windows_core::BOOL) -> windows::core::Result<()> {
         tracing::debug!(lock = flock.as_bool(), "LockServer called");
-        // We don't track lock count for now; the process stays alive
-        // as long as the COM message pump is running.
+        // Lock count tracking is intentionally omitted. This is an EXE COM server
+        // whose lifetime is controlled by the message pump, not by lock count.
+        // The Windows WebAuthn Plugin API manages the process lifecycle.
         Ok(())
     }
 }

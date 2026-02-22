@@ -104,10 +104,10 @@ aws-sdk-kms = "1"
 tokio = { version = "1", features = ["full"] }
 
 # WebAuthn/CTAP2 data structures (from 1Password's passkey-rs)
-passkey-types = "0.4"
+passkey-types = "0.5"
 
 # COSE key encoding
-coset = "0.3"
+coset = "0.4"
 
 # CBOR serialization
 ciborium = "0.2"
