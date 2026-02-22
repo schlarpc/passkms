@@ -74,6 +74,7 @@ async fn test_full_registration_and_authentication_flow() {
         user_name: Some("testuser".to_string()),
         user_display_name: Some("Test User".to_string()),
         discoverable: true,
+        user_presence: true,
         exclude_list: vec![],
         pub_key_cred_params: vec![-7], // ES256
     };
@@ -117,6 +118,7 @@ async fn test_full_registration_and_authentication_flow() {
     let auth_request = GetAssertionRequest {
         rp_id: rp_id.to_string(),
         client_data_hash: auth_client_data_hash,
+        user_presence: true,
         allow_list: vec![cred_id.as_bytes().to_vec()],
     };
 
@@ -166,6 +168,7 @@ async fn test_full_registration_and_authentication_flow() {
     let discover_request = GetAssertionRequest {
         rp_id: rp_id.to_string(),
         client_data_hash: Sha256::digest(b"test-client-data-discover").into(),
+        user_presence: true,
         allow_list: vec![],
     };
 

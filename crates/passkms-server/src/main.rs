@@ -60,6 +60,7 @@ async fn register(authenticator: &Authenticator, rp_id: &str, user_name: &str) {
         user_name: Some(user_name.to_string()),
         user_display_name: Some(user_name.to_string()),
         discoverable: true,
+        user_presence: false, // No user presence verification in headless mode
         exclude_list: vec![],
         pub_key_cred_params: vec![-7], // ES256
     };
@@ -104,6 +105,7 @@ async fn authenticate(authenticator: &Authenticator, rp_id: &str, credential_id:
     let request = GetAssertionRequest {
         rp_id: rp_id.to_string(),
         client_data_hash,
+        user_presence: false, // No user presence verification in headless mode
         allow_list,
     };
 

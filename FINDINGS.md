@@ -43,14 +43,11 @@ tests. The only test coverage comes from opt-in integration tests requiring real
 **Fix:** Introduce a `CredentialStorage` trait to decouple from the concrete KMS client,
 enabling mock-based unit testing of `Authenticator`, `CredentialStore`, and `KmsSigner`.
 
-### M2. UP flag always asserted without actual user presence check
-**Category:** Security / Spec compliance
-**Files:** `crates/passkms-core/src/authenticator.rs:189,280`
+### ~~M2. UP flag always asserted without actual user presence check~~ RESOLVED
 
-The UP flag is unconditionally set. This is acceptable for the Windows plugin (platform handles
-UP via credential picker) but incorrect for the server/headless use case (`passkms-server`).
-
-**Fix:** Accept a `user_presence_verified` flag in the request structs rather than hardcoding.
+Both request structs now accept a `user_presence` boolean. The UP flag is only set when
+the caller indicates user presence was verified. The Windows COM plugin sets it to `true`
+(platform handles UP), while the headless server sets it to `false`.
 
 ### ~~M3. `CredentialStoreError::Kms` conflates API errors with internal logic errors~~ RESOLVED
 
@@ -218,7 +215,7 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 | Severity | Total | Resolved | Remaining | Key themes |
 |----------|-------|----------|-----------|------------|
 | High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
-| Medium | 10 | 8 | 2 | ~~Type safety, spec compliance, performance, docs, error handling~~, test infra, UP flag |
+| Medium | 10 | 9 | 1 | ~~Type safety, spec compliance, performance, docs, error handling, UP flag~~, test infra |
 | Low | 18 | 7 | 11 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
 
 ### Remaining priorities

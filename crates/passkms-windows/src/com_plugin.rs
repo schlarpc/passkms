@@ -223,6 +223,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             user_name: user_name.clone(),
             user_display_name: user_display_name.clone(),
             discoverable,
+            user_presence: true, // Platform handles UP via credential picker
             exclude_list,
             pub_key_cred_params,
         };
@@ -411,6 +412,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         let core_request = passkms_core::GetAssertionRequest {
             rp_id: rp_id.clone(),
             client_data_hash,
+            user_presence: true, // Platform handles UP via credential picker
             allow_list,
         };
 

@@ -64,6 +64,9 @@ pub struct MakeCredentialRequest {
     pub user_display_name: Option<String>,
     /// Whether to create a discoverable (resident) credential.
     pub discoverable: bool,
+    /// Whether user presence has been verified by the platform.
+    /// When true, the UP flag is set in authenticator data.
+    pub user_presence: bool,
     /// Credential IDs to exclude. If any match an existing credential for this RP,
     /// registration must fail (WebAuthn Section 6.3.2 step 7).
     pub exclude_list: Vec<Vec<u8>>,
@@ -91,6 +94,9 @@ pub struct GetAssertionRequest {
     pub rp_id: String,
     /// SHA-256 hash of the client data JSON (computed by the client/platform).
     pub client_data_hash: [u8; 32],
+    /// Whether user presence has been verified by the platform.
+    /// When true, the UP flag is set in authenticator data.
+    pub user_presence: bool,
     /// List of allowed credential IDs (from the RP). If empty, uses discoverable credentials.
     pub allow_list: Vec<Vec<u8>>,
 }
@@ -192,9 +198,11 @@ impl Authenticator {
         // 5. Build authenticator data
         // Counter=0 signals "no counter support" per WebAuthn spec, which is safer
         // than a timestamp-based counter that can go backwards with clock adjustments.
-        let auth_data = AuthenticatorData::new(&request.rp_id, Some(0))
-            .set_attested_credential_data(attested_credential_data)
-            .set_flags(Flags::UP);
+        let mut auth_data = AuthenticatorData::new(&request.rp_id, Some(0))
+            .set_attested_credential_data(attested_credential_data);
+        if request.user_presence {
+            auth_data = auth_data.set_flags(Flags::UP);
+        }
 
         let auth_data_bytes = auth_data.to_vec();
 
@@ -283,7 +291,10 @@ impl Authenticator {
             };
 
             // Build authenticator data (no attested credential data for assertions)
-            let auth_data = AuthenticatorData::new(&request.rp_id, Some(0)).set_flags(Flags::UP);
+            let mut auth_data = AuthenticatorData::new(&request.rp_id, Some(0));
+            if request.user_presence {
+                auth_data = auth_data.set_flags(Flags::UP);
+            }
 
             let auth_data_bytes = auth_data.to_vec();
 
