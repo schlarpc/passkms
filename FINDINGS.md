@@ -177,12 +177,10 @@ with only `key_id` populated and all optional fields `None`. The `TAG_MANAGED` t
 during creation but never checked during discovery, so non-passkms keys could appear in
 results.
 
-### L11. `passkms-server` `list_credentials` creates redundant AWS client
-**Category:** Code quality
-**Files:** `crates/passkms-server/src/main.rs:136-139`
+### ~~L11. `passkms-server` `list_credentials` creates redundant AWS client~~ RESOLVED
 
-The function accepts an `&Authenticator` parameter but ignores it, creating a new AWS
-config/client/store from scratch. Should use `authenticator.store()` instead.
+`list_credentials` now uses the passed `authenticator.store()` instead of creating
+a redundant AWS client.
 
 ### L12. No timeout on KMS operations in COM plugin
 **Category:** Robustness

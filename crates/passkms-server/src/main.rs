@@ -134,14 +134,10 @@ async fn authenticate(authenticator: &Authenticator, rp_id: &str, credential_id:
     }
 }
 
-async fn list_credentials(_authenticator: &Authenticator, rp_id: &str) {
-    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-    let kms_client = Client::new(&config);
-    let store = CredentialStore::new(kms_client);
-
+async fn list_credentials(authenticator: &Authenticator, rp_id: &str) {
     println!("Listing credentials for RP: {rp_id}");
 
-    match store.discover_credentials(rp_id).await {
+    match authenticator.store().discover_credentials(rp_id).await {
         Ok(credentials) => {
             if credentials.is_empty() {
                 println!("  No credentials found");
