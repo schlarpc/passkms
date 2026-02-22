@@ -4,8 +4,6 @@
 //! using passkey-types for data structures and KMS for cryptographic
 //! operations.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use async_signature::AsyncSigner;
 use passkey_types::ctap2::{Aaguid, AttestedCredentialData, AuthenticatorData, Flags};
 
@@ -182,8 +180,9 @@ impl Authenticator {
                 .map_err(|e| AuthenticatorError::Internal(e.to_string()))?;
 
         // 5. Build authenticator data
-        let counter = current_timestamp_counter();
-        let auth_data = AuthenticatorData::new(&request.rp_id, Some(counter))
+        // Counter=0 signals "no counter support" per WebAuthn spec, which is safer
+        // than a timestamp-based counter that can go backwards with clock adjustments.
+        let auth_data = AuthenticatorData::new(&request.rp_id, Some(0))
             .set_attested_credential_data(attested_credential_data)
             .set_flags(Flags::UP);
 
@@ -268,9 +267,8 @@ impl Authenticator {
             let signer = self.store.get_signing_key(&request.rp_id, key_id).await?;
 
             // Build authenticator data (no attested credential data for assertions)
-            let counter = current_timestamp_counter();
             let auth_data =
-                AuthenticatorData::new(&request.rp_id, Some(counter)).set_flags(Flags::UP);
+                AuthenticatorData::new(&request.rp_id, Some(0)).set_flags(Flags::UP);
 
             let auth_data_bytes = auth_data.to_vec();
 
@@ -292,35 +290,3 @@ impl Authenticator {
     }
 }
 
-/// Get the current Unix timestamp as a u32 signature counter.
-///
-/// Using a timestamp as the counter avoids needing to persist state.
-/// The counter is monotonically increasing (at second granularity).
-fn current_timestamp_counter() -> u32 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .try_into()
-        .unwrap_or(u32::MAX)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn timestamp_counter_is_nonzero() {
-        let counter = current_timestamp_counter();
-        assert!(counter > 0);
-    }
-
-    #[test]
-    fn timestamp_counter_is_reasonable() {
-        let counter = current_timestamp_counter();
-        // Should be after 2024-01-01 (~1704067200)
-        assert!(counter > 1_704_067_200);
-        // Should be before 2100 (~4102444800, but u32 max is ~4294967295)
-        assert!(counter < u32::MAX);
-    }
-}
