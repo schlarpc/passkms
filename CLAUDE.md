@@ -22,11 +22,12 @@ New files must be `git add`ed before `nix build` because Nix copies from the git
 
 ## Project Structure
 
-This is a Cargo workspace with two crates:
+This is a Cargo workspace with three crates:
 
 | Crate | Purpose |
 |-------|---------|
 | `passkms-core` | Platform-agnostic FIDO2 authenticator logic, KMS credential store, COSE key conversion |
+| `passkms-server` | CLI tool for testing registration, authentication, and credential listing against real KMS |
 | `passkms-windows` | Windows COM server implementing IPluginAuthenticator for the WebAuthn Plugin API |
 
 ### File Locations
@@ -35,6 +36,7 @@ This is a Cargo workspace with two crates:
 |---------|----------|
 | Workspace manifest | `Cargo.toml` |
 | Core crate | `crates/passkms-core/` |
+| Server crate | `crates/passkms-server/` |
 | Windows crate | `crates/passkms-windows/` |
 | Core authenticator | `crates/passkms-core/src/authenticator.rs` |
 | Core credential store | `crates/passkms-core/src/credential_store.rs` |
@@ -44,6 +46,7 @@ This is a Cargo workspace with two crates:
 | Windows COM factory | `crates/passkms-windows/src/com_factory.rs` |
 | Windows registration | `crates/passkms-windows/src/registration.rs` |
 | Windows FFI bindings | `crates/passkms-windows/src/bindings.rs` |
+| Server CLI | `crates/passkms-server/src/main.rs` |
 | Integration tests | `crates/passkms-core/tests/kms_integration.rs` |
 | Nix flake | `flake.nix` |
 | Format config | `rustfmt.toml` |
@@ -55,13 +58,15 @@ This is a Cargo workspace with two crates:
 The project uses Nix flakes with Crane for Rust builds and cross-compilation to Windows.
 
 **Outputs:**
+- `packages.${system}.default` - Native build (core + server)
+- `packages.${system}.passkms-server` - Server CLI binary
 - `packages.${system}.passkms-windows` - Windows cross-compiled binary
 - `devShells.${system}.default` - Development environment
 - `checks.${system}.*` - CI checks (build, clippy, fmt, test)
 
 ### Cargo (Cargo.toml)
 
-Workspace with two member crates. Lints configured at the workspace level.
+Workspace with three member crates. Lints configured at the workspace level.
 
 ## Testing
 

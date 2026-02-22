@@ -91,14 +91,10 @@ Changed `client_data_hash` to `[u8; 32]` in both request structs, removing the n
 runtime length checks. Changed `sign_prehashed` to accept `&[u8; 32]`. The COM plugin now
 validates the hash length at the FFI boundary with `try_from`.
 
-### M9. CLAUDE.md is outdated -- says "two crates" but there are three
-**Category:** Documentation
-**Files:** `CLAUDE.md:25-31`, `Cargo.toml:3-7`
+### ~~M9. CLAUDE.md is outdated -- says "two crates" but there are three~~ RESOLVED
 
-The workspace has three member crates (`passkms-core`, `passkms-server`, `passkms-windows`)
-but CLAUDE.md only documents two. `passkms-server` is missing from the project structure table,
-file locations, and build instructions. The Nix outputs section is also incomplete (missing
-`packages.${system}.default` and `packages.${system}.passkms-server`).
+Updated CLAUDE.md to document all three crates, added `passkms-server` to the project
+structure table and file locations, and added missing Nix outputs.
 
 ### M10. Magic version numbers in COM response structs
 **Category:** Hardcoded values
