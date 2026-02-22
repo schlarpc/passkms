@@ -174,8 +174,8 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         tracing::debug!(
             rp_id = %rp_id,
-            client_data_hash = %hex::encode(&client_data_hash),
-            user_handle = %hex::encode(&user_handle),
+            client_data_hash_len = client_data_hash.len(),
+            user_handle_len = user_handle.len(),
             user_name = ?user_name,
             display_name = ?user_display_name,
             discoverable,
@@ -354,7 +354,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         tracing::debug!(
             rp_id = %rp_id,
-            client_data_hash = %hex::encode(&client_data_hash),
+            client_data_hash_len = client_data_hash.len(),
             allow_list_len = allow_list.len(),
             "decoded GetAssertion fields"
         );

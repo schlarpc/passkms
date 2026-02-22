@@ -57,7 +57,6 @@ pub fn register() -> Result<(), HRESULT> {
     let authenticator_info = build_authenticator_info();
     tracing::debug!(
         authenticator_info_len = authenticator_info.len(),
-        authenticator_info_hex = %hex::encode(&authenticator_info),
         "authenticatorGetInfo CBOR blob built"
     );
 
@@ -105,8 +104,8 @@ pub fn register() -> Result<(), HRESULT> {
             std::slice::from_raw_parts(resp.pbOpSignPubKey, resp.cbOpSignPubKey as usize)
         };
         tracing::debug!(
-            key_hex = %hex::encode(key_data),
-            "operation signing public key data"
+            key_len = key_data.len(),
+            "operation signing public key received"
         );
         if let Err(e) = save_op_sign_key(key_data) {
             tracing::error!(error = ?e, "failed to save operation signing key to registry");
