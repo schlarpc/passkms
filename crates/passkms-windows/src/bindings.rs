@@ -23,13 +23,13 @@ pub unsafe trait IPluginAuthenticator: IUnknown {
     unsafe fn MakeCredential(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,
-        response: *mut *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
+        response: *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
     ) -> HRESULT;
 
     unsafe fn GetAssertion(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,
-        response: *mut *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
+        response: *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
     ) -> HRESULT;
 
     unsafe fn CancelOperation(
@@ -335,12 +335,10 @@ pub struct WEBAUTHN_CTAPCBOR_GET_ASSERTION_REQUEST {
 // CTAP CBOR GetAssertion response (webauthnplugin.h)
 // ---------------------------------------------------------------------------
 
-/// Assertion response for the WebAuthn platform (V1).
-///
-/// We use WEBAUTHN_ASSERTION at version 1 only since we don't need extensions.
+/// Assertion response for the WebAuthn platform (full struct through V6).
 #[repr(C)]
-#[derive(Debug)]
-pub struct WEBAUTHN_ASSERTION_V1 {
+pub struct WEBAUTHN_ASSERTION {
+    // V1
     pub dwVersion: u32,
     pub cbAuthenticatorData: u32,
     pub pbAuthenticatorData: *mut u8,
@@ -349,13 +347,29 @@ pub struct WEBAUTHN_ASSERTION_V1 {
     pub Credential: WEBAUTHN_CREDENTIAL,
     pub cbUserId: u32,
     pub pbUserId: *mut u8,
+    // V2
+    pub Extensions: WEBAUTHN_EXTENSIONS,
+    pub cbCredLargeBlob: u32,
+    pub pbCredLargeBlob: *mut u8,
+    pub dwCredLargeBlobStatus: u32,
+    // V3
+    pub pHmacSecret: *const WEBAUTHN_HMAC_SECRET_SALT,
+    // V4
+    pub dwUsedTransport: u32,
+    // V5
+    pub cbUnsignedExtensionOutputs: u32,
+    pub pbUnsignedExtensionOutputs: *mut u8,
+    // V6
+    pub cbClientDataJSON: u32,
+    pub pbClientDataJSON: *mut u8,
+    pub cbAuthenticationResponseJSON: u32,
+    pub pbAuthenticationResponseJSON: *mut u8,
 }
 
 /// Decoded GetAssertion response to encode back to CBOR.
 #[repr(C)]
-#[derive(Debug)]
 pub struct WEBAUTHN_CTAPCBOR_GET_ASSERTION_RESPONSE {
-    pub WebAuthNAssertion: WEBAUTHN_ASSERTION_V1,
+    pub WebAuthNAssertion: WEBAUTHN_ASSERTION,
     pub pUserInformation: *const WEBAUTHN_USER_ENTITY_INFORMATION,
     pub dwNumberOfCredentials: u32,
     pub lUserSelected: i32,
@@ -369,10 +383,10 @@ pub struct WEBAUTHN_CTAPCBOR_GET_ASSERTION_RESPONSE {
 // Credential attestation (webauthn.h, used by EncodeMakeCredentialResponse)
 // ---------------------------------------------------------------------------
 
-/// Credential attestation result (V1 fields only).
+/// Credential attestation result (full struct through V8).
 #[repr(C)]
-#[derive(Debug)]
-pub struct WEBAUTHN_CREDENTIAL_ATTESTATION_V1 {
+pub struct WEBAUTHN_CREDENTIAL_ATTESTATION {
+    // V1
     pub dwVersion: u32,
     pub pwszFormatType: *const u16,
     pub cbAuthenticatorData: u32,
@@ -385,6 +399,28 @@ pub struct WEBAUTHN_CREDENTIAL_ATTESTATION_V1 {
     pub pbAttestationObject: *mut u8,
     pub cbCredentialId: u32,
     pub pbCredentialId: *mut u8,
+    // V2
+    pub Extensions: WEBAUTHN_EXTENSIONS,
+    // V3
+    pub dwUsedTransport: u32,
+    // V4
+    pub bEpAtt: BOOL,
+    pub bLargeBlobSupported: BOOL,
+    pub bResidentKey: BOOL,
+    // V5
+    pub bPrfEnabled: BOOL,
+    // V6
+    pub cbUnsignedExtensionOutputs: u32,
+    pub pbUnsignedExtensionOutputs: *const u8,
+    // V7
+    pub pHmacSecret: *const WEBAUTHN_HMAC_SECRET_SALT,
+    pub bThirdPartyPayment: BOOL,
+    // V8
+    pub dwTransports: u32,
+    pub cbClientDataJSON: u32,
+    pub pbClientDataJSON: *const u8,
+    pub cbRegistrationResponseJSON: u32,
+    pub pbRegistrationResponseJSON: *const u8,
 }
 
 // ---------------------------------------------------------------------------
@@ -465,7 +501,7 @@ unsafe extern "system" {
     );
 
     pub fn WebAuthNEncodeMakeCredentialResponse(
-        pCredentialAttestation: *const WEBAUTHN_CREDENTIAL_ATTESTATION_V1,
+        pCredentialAttestation: *const WEBAUTHN_CREDENTIAL_ATTESTATION,
         pcbResp: *mut u32,
         ppbResp: *mut *mut u8,
     ) -> HRESULT;

@@ -17,6 +17,8 @@ tracing-subscriber.workspace = true
 windows.workspace = true
 windows-core.workspace = true
 windows-interface.workspace = true
+ciborium.workspace = true
+hex.workspace = true
 
 [lints]
 workspace = true

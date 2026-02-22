@@ -28,30 +28,44 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
     unsafe fn MakeCredential(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,
-        response: *mut *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
+        response: *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
     ) -> HRESULT {
+        tracing::debug!("MakeCredential entry");
         if request.is_null() || response.is_null() {
+            tracing::debug!(
+                request_null = request.is_null(),
+                response_null = response.is_null(),
+                "MakeCredential null parameter"
+            );
             return windows::Win32::Foundation::E_INVALIDARG;
         }
+
+        // Zero-initialize the caller-provided response struct
+        *response = std::mem::zeroed();
 
         let req = &*request;
         tracing::info!(
             transaction_id = ?req.transactionId,
             cbor_len = req.cbEncodedRequest,
+            request_type = ?req.requestType,
+            hwnd = ?req.hWnd,
+            signature_len = req.cbRequestSignature,
             "MakeCredential request received"
         );
 
         // Decode the CTAP2 CBOR request using the Windows helper
+        tracing::debug!("decoding CTAP2 CBOR MakeCredential request");
         let mut decoded: *mut WEBAUTHN_CTAPCBOR_MAKE_CREDENTIAL_REQUEST = std::ptr::null_mut();
         let hr = WebAuthNDecodeMakeCredentialRequest(
             req.cbEncodedRequest,
-            req.cbEncodedRequest as *const u8,
+            req.pbEncodedRequest,
             &mut decoded,
         );
         if hr.is_err() {
             tracing::error!(?hr, "failed to decode MakeCredential request");
             return hr;
         }
+        tracing::debug!("CTAP2 CBOR MakeCredential request decoded successfully");
 
         let decoded_ref = &*decoded;
 
@@ -82,24 +96,53 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             .as_ref()
             .map_or(false, |opts| opts.lRequireResidentKey > 0);
 
+        tracing::debug!(
+            rp_id = %rp_id,
+            client_data_hash = %hex::encode(&client_data_hash),
+            user_handle = %hex::encode(&user_handle),
+            user_name = ?user_name,
+            display_name = ?user_display_name,
+            discoverable,
+            num_cred_params = decoded_ref.WebAuthNCredentialParameters.cCredentialParameters,
+            num_exclude_list = decoded_ref.CredentialList.cCredentials,
+            has_authenticator_options = decoded_ref.pAuthenticatorOptions.is_null().then_some("no").unwrap_or("yes"),
+            "decoded MakeCredential fields"
+        );
+
+        if let Some(opts) = decoded_ref.pAuthenticatorOptions.as_ref() {
+            tracing::debug!(
+                up = opts.lUp,
+                uv = opts.lUv,
+                rk = opts.lRequireResidentKey,
+                version = opts.dwVersion,
+                "authenticator options"
+            );
+        }
+
         let rp_id_owned = rp_id.to_string();
+        let rp_name = wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName);
+        tracing::debug!(rp_name = ?rp_name, "relying party info");
 
         // Delegate to passkms-core on the tokio runtime
         let core_request = passkms_core::MakeCredentialRequest {
             client_data_hash,
             rp_id: rp_id_owned.clone(),
-            rp_name: wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName),
+            rp_name,
             user_handle,
             user_name: user_name.clone(),
             user_display_name: user_display_name.clone(),
             discoverable,
         };
 
+        tracing::debug!("delegating MakeCredential to passkms-core via tokio runtime");
         let result = self.runtime.block_on(async {
+            tracing::debug!("loading AWS config");
             let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            tracing::debug!(region = ?config.region(), "AWS config loaded");
             let kms_client = aws_sdk_kms::Client::new(&config);
             let store = passkms_core::CredentialStore::new(kms_client);
             let authenticator = passkms_core::Authenticator::new(store);
+            tracing::debug!("calling authenticator.make_credential");
             authenticator.make_credential(&core_request).await
         });
 
@@ -108,23 +151,27 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         match result {
             Ok(core_response) => {
-                // Build the attestation struct for encoding
-                let fmt_wide = wide_string("packed\0");
-                let attestation = WEBAUTHN_CREDENTIAL_ATTESTATION_V1 {
-                    dwVersion: 1,
-                    pwszFormatType: fmt_wide.as_ptr(),
-                    cbAuthenticatorData: core_response.auth_data_bytes.len() as u32,
-                    pbAuthenticatorData: core_response.auth_data_bytes.as_ptr() as *mut u8,
-                    cbAttestation: 0,
-                    pbAttestation: std::ptr::null_mut(),
-                    dwAttestationDecodeType: 0,
-                    pvAttestationDecode: std::ptr::null(),
-                    cbAttestationObject: core_response.attestation_object.len() as u32,
-                    pbAttestationObject: core_response.attestation_object.as_ptr() as *mut u8,
-                    cbCredentialId: core_response.credential_id.len() as u32,
-                    pbCredentialId: core_response.credential_id.as_ptr() as *mut u8,
-                };
+                tracing::debug!(
+                    credential_id_len = core_response.credential_id.len(),
+                    credential_id = %hex::encode(&core_response.credential_id),
+                    auth_data_len = core_response.auth_data_bytes.len(),
+                    attestation_object_len = core_response.attestation_object.len(),
+                    "MakeCredential core response received"
+                );
 
+                // Build the attestation struct for encoding.
+                // Use "none" attestation format and current version, matching the
+                // Contoso sample. The encode function rejects older versions.
+                let fmt_wide = wide_string("none\0");
+                let mut attestation: WEBAUTHN_CREDENTIAL_ATTESTATION = unsafe { std::mem::zeroed() };
+                attestation.dwVersion = 8; // WEBAUTHN_CREDENTIAL_ATTESTATION_CURRENT_VERSION
+                attestation.pwszFormatType = fmt_wide.as_ptr();
+                attestation.cbAuthenticatorData = core_response.auth_data_bytes.len() as u32;
+                attestation.pbAuthenticatorData = core_response.auth_data_bytes.as_ptr() as *mut u8;
+                attestation.cbCredentialId = core_response.credential_id.len() as u32;
+                attestation.pbCredentialId = core_response.credential_id.as_ptr() as *mut u8;
+
+                tracing::debug!("encoding MakeCredential response to CTAP2 CBOR");
                 let mut cb_resp: u32 = 0;
                 let mut pb_resp: *mut u8 = std::ptr::null_mut();
                 let hr =
@@ -134,20 +181,16 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                     tracing::error!(?hr, "failed to encode MakeCredential response");
                     return hr;
                 }
+                tracing::debug!(encoded_len = cb_resp, "MakeCredential response encoded");
 
-                // Allocate response struct using CoTaskMemAlloc
-                let resp_ptr = windows::Win32::System::Com::CoTaskMemAlloc(std::mem::size_of::<
-                    WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
-                >()) as *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE;
+                (*response).cbEncodedResponse = cb_resp;
+                (*response).pbEncodedResponse = pb_resp;
 
-                if resp_ptr.is_null() {
-                    return windows::Win32::Foundation::E_OUTOFMEMORY;
-                }
-
-                (*resp_ptr).cbEncodedResponse = cb_resp;
-                (*resp_ptr).pbEncodedResponse = pb_resp;
-                *response = resp_ptr;
-
+                tracing::info!(
+                    credential_id = %hex::encode(&core_response.credential_id),
+                    rp_id = %rp_id_owned,
+                    "MakeCredential completed successfully"
+                );
                 HRESULT(0) // S_OK
             }
             Err(e) => {
@@ -160,20 +203,33 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
     unsafe fn GetAssertion(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,
-        response: *mut *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
+        response: *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
     ) -> HRESULT {
+        tracing::debug!("GetAssertion entry");
         if request.is_null() || response.is_null() {
+            tracing::debug!(
+                request_null = request.is_null(),
+                response_null = response.is_null(),
+                "GetAssertion null parameter"
+            );
             return windows::Win32::Foundation::E_INVALIDARG;
         }
+
+        // Zero-initialize the caller-provided response struct
+        *response = std::mem::zeroed();
 
         let req = &*request;
         tracing::info!(
             transaction_id = ?req.transactionId,
             cbor_len = req.cbEncodedRequest,
+            request_type = ?req.requestType,
+            hwnd = ?req.hWnd,
+            signature_len = req.cbRequestSignature,
             "GetAssertion request received"
         );
 
         // Decode the CTAP2 CBOR request
+        tracing::debug!("decoding CTAP2 CBOR GetAssertion request");
         let mut decoded: *mut WEBAUTHN_CTAPCBOR_GET_ASSERTION_REQUEST = std::ptr::null_mut();
         let hr = WebAuthNDecodeGetAssertionRequest(
             req.cbEncodedRequest,
@@ -184,6 +240,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             tracing::error!(?hr, "failed to decode GetAssertion request");
             return hr;
         }
+        tracing::debug!("CTAP2 CBOR GetAssertion request decoded successfully");
 
         let decoded_ref = &*decoded;
 
@@ -207,23 +264,51 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             if !cred_ptr.is_null() {
                 let cred = &*cred_ptr;
                 let id = std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec();
+                tracing::debug!(
+                    index = i,
+                    credential_id = %hex::encode(&id),
+                    transports = cred.dwTransports,
+                    "allow list credential"
+                );
                 allow_list.push(id);
             }
+        }
+
+        tracing::debug!(
+            rp_id = %rp_id,
+            client_data_hash = %hex::encode(&client_data_hash),
+            allow_list_len = allow_list.len(),
+            has_authenticator_options = !decoded_ref.pAuthenticatorOptions.is_null(),
+            "decoded GetAssertion fields"
+        );
+
+        if let Some(opts) = decoded_ref.pAuthenticatorOptions.as_ref() {
+            tracing::debug!(
+                up = opts.lUp,
+                uv = opts.lUv,
+                rk = opts.lRequireResidentKey,
+                version = opts.dwVersion,
+                "authenticator options"
+            );
         }
 
         let rp_id_owned = rp_id.to_string();
 
         let core_request = passkms_core::GetAssertionRequest {
-            rp_id: rp_id_owned,
+            rp_id: rp_id_owned.clone(),
             client_data_hash,
             allow_list,
         };
 
+        tracing::debug!("delegating GetAssertion to passkms-core via tokio runtime");
         let result = self.runtime.block_on(async {
+            tracing::debug!("loading AWS config");
             let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            tracing::debug!(region = ?config.region(), "AWS config loaded");
             let kms_client = aws_sdk_kms::Client::new(&config);
             let store = passkms_core::CredentialStore::new(kms_client);
             let authenticator = passkms_core::Authenticator::new(store);
+            tracing::debug!("calling authenticator.get_assertion");
             authenticator.get_assertion(&core_request).await
         });
 
@@ -231,6 +316,11 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         match result {
             Ok(assertions) => {
+                tracing::debug!(
+                    num_assertions = assertions.len(),
+                    "GetAssertion core response received"
+                );
+
                 if assertions.is_empty() {
                     tracing::warn!("no assertions returned");
                     return windows::Win32::Foundation::E_FAIL;
@@ -239,27 +329,38 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 // Return the first assertion (Windows expects one at a time)
                 let assertion = &assertions[0];
 
+                tracing::debug!(
+                    credential_id = %hex::encode(&assertion.credential_id),
+                    auth_data_len = assertion.auth_data_bytes.len(),
+                    signature_len = assertion.signature.len(),
+                    has_user_handle = assertion.user_handle.is_some(),
+                    "using first assertion"
+                );
+
                 let cred_type_wide = wide_string("public-key\0");
 
+                let mut webauthn_assertion: WEBAUTHN_ASSERTION = std::mem::zeroed();
+                webauthn_assertion.dwVersion = 6; // WEBAUTHN_ASSERTION_CURRENT_VERSION
+                webauthn_assertion.cbAuthenticatorData = assertion.auth_data_bytes.len() as u32;
+                webauthn_assertion.pbAuthenticatorData =
+                    assertion.auth_data_bytes.as_ptr() as *mut u8;
+                webauthn_assertion.cbSignature = assertion.signature.len() as u32;
+                webauthn_assertion.pbSignature = assertion.signature.as_ptr() as *mut u8;
+                webauthn_assertion.Credential = WEBAUTHN_CREDENTIAL {
+                    dwVersion: 1,
+                    cbId: assertion.credential_id.len() as u32,
+                    pbId: assertion.credential_id.as_ptr(),
+                    pwszCredentialType: cred_type_wide.as_ptr(),
+                };
+                webauthn_assertion.cbUserId =
+                    assertion.user_handle.as_ref().map_or(0, |h| h.len() as u32);
+                webauthn_assertion.pbUserId = assertion
+                    .user_handle
+                    .as_ref()
+                    .map_or(std::ptr::null_mut(), |h| h.as_ptr() as *mut u8);
+
                 let ga_response = WEBAUTHN_CTAPCBOR_GET_ASSERTION_RESPONSE {
-                    WebAuthNAssertion: WEBAUTHN_ASSERTION_V1 {
-                        dwVersion: 1,
-                        cbAuthenticatorData: assertion.auth_data_bytes.len() as u32,
-                        pbAuthenticatorData: assertion.auth_data_bytes.as_ptr() as *mut u8,
-                        cbSignature: assertion.signature.len() as u32,
-                        pbSignature: assertion.signature.as_ptr() as *mut u8,
-                        Credential: WEBAUTHN_CREDENTIAL {
-                            dwVersion: 1,
-                            cbId: assertion.credential_id.len() as u32,
-                            pbId: assertion.credential_id.as_ptr(),
-                            pwszCredentialType: cred_type_wide.as_ptr(),
-                        },
-                        cbUserId: assertion.user_handle.as_ref().map_or(0, |h| h.len() as u32),
-                        pbUserId: assertion
-                            .user_handle
-                            .as_ref()
-                            .map_or(std::ptr::null_mut(), |h| h.as_ptr() as *mut u8),
-                    },
+                    WebAuthNAssertion: webauthn_assertion,
                     pUserInformation: std::ptr::null(),
                     dwNumberOfCredentials: assertions.len() as u32,
                     lUserSelected: 0,
@@ -269,6 +370,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                     pbUnsignedExtensionOutputs: std::ptr::null(),
                 };
 
+                tracing::debug!("encoding GetAssertion response to CTAP2 CBOR");
                 let mut cb_resp: u32 = 0;
                 let mut pb_resp: *mut u8 = std::ptr::null_mut();
                 let hr =
@@ -278,19 +380,16 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                     tracing::error!(?hr, "failed to encode GetAssertion response");
                     return hr;
                 }
+                tracing::debug!(encoded_len = cb_resp, "GetAssertion response encoded");
 
-                let resp_ptr = windows::Win32::System::Com::CoTaskMemAlloc(std::mem::size_of::<
-                    WEBAUTHN_PLUGIN_OPERATION_RESPONSE,
-                >()) as *mut WEBAUTHN_PLUGIN_OPERATION_RESPONSE;
+                (*response).cbEncodedResponse = cb_resp;
+                (*response).pbEncodedResponse = pb_resp;
 
-                if resp_ptr.is_null() {
-                    return windows::Win32::Foundation::E_OUTOFMEMORY;
-                }
-
-                (*resp_ptr).cbEncodedResponse = cb_resp;
-                (*resp_ptr).pbEncodedResponse = pb_resp;
-                *response = resp_ptr;
-
+                tracing::info!(
+                    credential_id = %hex::encode(&assertion.credential_id),
+                    rp_id = %rp_id_owned,
+                    "GetAssertion completed successfully"
+                );
                 HRESULT(0) // S_OK
             }
             Err(e) => {
@@ -304,28 +403,35 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         &self,
         request: *const WEBAUTHN_PLUGIN_CANCEL_OPERATION_REQUEST,
     ) -> HRESULT {
+        tracing::debug!("CancelOperation entry");
         if request.is_null() {
+            tracing::debug!("CancelOperation null request");
             return windows::Win32::Foundation::E_INVALIDARG;
         }
 
         let req = &*request;
         tracing::info!(
             transaction_id = ?req.transactionId,
+            signature_len = req.cbRequestSignature,
             "CancelOperation request received"
         );
 
         // We don't currently support cancellation of in-flight KMS operations.
         // Return S_OK to acknowledge the request.
+        tracing::debug!("CancelOperation acknowledged (no-op, KMS operations not cancellable)");
         HRESULT(0)
     }
 
     unsafe fn GetLockStatus(&self, lock_status: *mut PLUGIN_LOCK_STATUS) -> HRESULT {
+        tracing::debug!("GetLockStatus entry");
         if lock_status.is_null() {
+            tracing::debug!("GetLockStatus null pointer");
             return windows::Win32::Foundation::E_INVALIDARG;
         }
 
         // We're always unlocked -- no local PIN or biometric gate.
         *lock_status = PLUGIN_LOCK_STATUS::Unlocked;
+        tracing::debug!(status = ?PLUGIN_LOCK_STATUS::Unlocked, "GetLockStatus returning Unlocked");
         HRESULT(0)
     }
 }

@@ -37,31 +37,47 @@ impl IClassFactory_Impl for PasskeyClassFactory_Impl {
         riid: *const GUID,
         ppvobject: *mut *mut std::ffi::c_void,
     ) -> windows::core::Result<()> {
+        let riid_val = unsafe { &*riid };
+        tracing::debug!(
+            riid = ?riid_val,
+            has_outer = punkouter.is_some(),
+            "CreateInstance called"
+        );
+
         unsafe {
             *ppvobject = std::ptr::null_mut();
         }
 
         // Aggregation not supported
         if punkouter.is_some() {
+            tracing::debug!("rejecting aggregation request");
             return Err(CLASS_E_NOAGGREGATION.into());
         }
 
-        let riid = unsafe { &*riid };
-
         // Only create instances for IPluginAuthenticator or IUnknown
-        if *riid != IPluginAuthenticator::IID && *riid != IUnknown::IID {
+        if *riid_val != IPluginAuthenticator::IID && *riid_val != IUnknown::IID {
+            tracing::debug!(
+                riid = ?riid_val,
+                expected_plugin = ?IPluginAuthenticator::IID,
+                expected_unknown = ?IUnknown::IID,
+                "rejecting unsupported interface request"
+            );
             return Err(windows::core::Error::from(
                 windows::Win32::Foundation::E_NOINTERFACE,
             ));
         }
 
+        tracing::debug!("creating new PluginAuthenticator instance");
         let authenticator = PluginAuthenticator::new(self.runtime.clone());
         let unknown: IUnknown = authenticator.into();
 
-        unsafe { unknown.query(riid, ppvobject).ok() }
+        let result = unsafe { unknown.query(riid_val, ppvobject).ok() };
+        tracing::debug!(success = result.is_ok(), "CreateInstance completed");
+        result
     }
 
-    fn LockServer(&self, _flock: windows_core::BOOL) -> windows::core::Result<()> {
+    fn LockServer(&self, flock: windows_core::BOOL) -> windows::core::Result<()> {
+        tracing::debug!(lock = flock.as_bool(), "LockServer called");
         // We don't track lock count for now; the process stays alive
         // as long as the COM message pump is running.
         Ok(())

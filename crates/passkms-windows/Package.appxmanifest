@@ -26,6 +26,7 @@
         <com:Extension Category="windows.comServer">
           <com:ComServer>
             <com:ExeServer Executable="passkms-windows.exe"
+                           Arguments="-PluginActivated"
                            DisplayName="passkms Plugin Authenticator">
               <com:Class Id="{a3b2c1d0-e4f5-6789-abcd-ef0123456789}"
                          DisplayName="PasskmsPluginAuthenticator"/>

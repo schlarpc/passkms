@@ -275,6 +275,46 @@ impl CredentialStore {
         Ok(())
     }
 
+    /// List all passkms credentials across all RPs.
+    ///
+    /// Enumerates all aliases with the `alias/passkms/` prefix and fetches
+    /// metadata for each. Used for syncing credentials with the OS.
+    pub async fn list_all_credentials(
+        &self,
+    ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
+        let prefix = "alias/passkms/";
+        let mut credentials = Vec::new();
+
+        let mut paginator = self.client.list_aliases().into_paginator().send();
+
+        while let Some(page) = paginator.next().await {
+            let page = page?;
+            for alias in page.aliases() {
+                let alias_name = alias.alias_name().unwrap_or_default();
+                if !alias_name.starts_with(prefix) {
+                    continue;
+                }
+
+                let Some(target_key_id) = alias.target_key_id() else {
+                    continue;
+                };
+
+                match self.get_credential_metadata(target_key_id).await {
+                    Ok(metadata) => credentials.push(metadata),
+                    Err(e) => {
+                        tracing::warn!(
+                            key_id = %target_key_id,
+                            error = %e,
+                            "skipping credential with unreadable metadata"
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(credentials)
+    }
+
     /// Fetch credential metadata from KMS key tags.
     async fn get_credential_metadata(
         &self,
