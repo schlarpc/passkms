@@ -69,23 +69,48 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         let decoded_ref = &*decoded;
 
-        // Extract fields from decoded request
-        let rp_id = std::str::from_utf8(std::slice::from_raw_parts(
-            decoded_ref.pbRpId,
-            decoded_ref.cbRpId as usize,
-        ))
-        .unwrap_or("unknown");
+        // Extract fields from decoded request, validating pointers before use.
+        let rp_id = if decoded_ref.pbRpId.is_null() {
+            tracing::error!("pbRpId is null in decoded MakeCredential request");
+            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        } else {
+            std::str::from_utf8(std::slice::from_raw_parts(
+                decoded_ref.pbRpId,
+                decoded_ref.cbRpId as usize,
+            ))
+            .unwrap_or("unknown")
+        };
 
-        let client_data_hash = std::slice::from_raw_parts(
-            decoded_ref.pbClientDataHash,
-            decoded_ref.cbClientDataHash as usize,
-        )
-        .to_vec();
+        let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
+            tracing::error!("pbClientDataHash is null in decoded MakeCredential request");
+            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        } else {
+            std::slice::from_raw_parts(
+                decoded_ref.pbClientDataHash,
+                decoded_ref.cbClientDataHash as usize,
+            )
+            .to_vec()
+        };
 
         // Extract user info
+        if decoded_ref.pUserInformation.is_null() {
+            tracing::error!("pUserInformation is null in decoded MakeCredential request");
+            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        }
         let user_info = &*decoded_ref.pUserInformation;
-        let user_handle =
-            std::slice::from_raw_parts(user_info.pbId, user_info.cbId as usize).to_vec();
+
+        let user_handle = if user_info.pbId.is_null() && user_info.cbId > 0 {
+            tracing::error!("user pbId is null with non-zero cbId");
+            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        } else if user_info.pbId.is_null() {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(user_info.pbId, user_info.cbId as usize).to_vec()
+        };
 
         let user_name = wide_ptr_to_string(user_info.pwszName);
         let user_display_name = wide_ptr_to_string(user_info.pwszDisplayName);
@@ -120,7 +145,11 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         }
 
         let rp_id_owned = rp_id.to_string();
-        let rp_name = wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName);
+        let rp_name = if decoded_ref.pRpInformation.is_null() {
+            None
+        } else {
+            wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName)
+        };
         tracing::debug!(rp_name = ?rp_name, "relying party info");
 
         // Delegate to passkms-core on the tokio runtime
@@ -244,26 +273,53 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         let decoded_ref = &*decoded;
 
-        // Extract RP ID from raw UTF-8 bytes
-        let rp_id = std::str::from_utf8(std::slice::from_raw_parts(
-            decoded_ref.pbRpId,
-            decoded_ref.cbRpId as usize,
-        ))
-        .unwrap_or("unknown");
+        // Extract RP ID from raw UTF-8 bytes, validating pointers before use.
+        let rp_id = if decoded_ref.pbRpId.is_null() {
+            tracing::error!("pbRpId is null in decoded GetAssertion request");
+            WebAuthNFreeDecodedGetAssertionRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        } else {
+            std::str::from_utf8(std::slice::from_raw_parts(
+                decoded_ref.pbRpId,
+                decoded_ref.cbRpId as usize,
+            ))
+            .unwrap_or("unknown")
+        };
 
-        let client_data_hash = std::slice::from_raw_parts(
-            decoded_ref.pbClientDataHash,
-            decoded_ref.cbClientDataHash as usize,
-        )
-        .to_vec();
+        let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
+            tracing::error!("pbClientDataHash is null in decoded GetAssertion request");
+            WebAuthNFreeDecodedGetAssertionRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        } else {
+            std::slice::from_raw_parts(
+                decoded_ref.pbClientDataHash,
+                decoded_ref.cbClientDataHash as usize,
+            )
+            .to_vec()
+        };
 
         // Build allow list from credential list
         let mut allow_list = Vec::new();
+        let cred_list_valid = decoded_ref.CredentialList.cCredentials == 0
+            || !decoded_ref.CredentialList.ppCredentials.is_null();
+        if !cred_list_valid {
+            tracing::error!("ppCredentials is null with non-zero cCredentials");
+            WebAuthNFreeDecodedGetAssertionRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        }
         for i in 0..decoded_ref.CredentialList.cCredentials {
             let cred_ptr = *decoded_ref.CredentialList.ppCredentials.add(i as usize);
             if !cred_ptr.is_null() {
                 let cred = &*cred_ptr;
-                let id = std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec();
+                if cred.pbId.is_null() && cred.cbId > 0 {
+                    tracing::warn!(index = i, "credential has null pbId with non-zero cbId, skipping");
+                    continue;
+                }
+                let id = if cred.pbId.is_null() {
+                    Vec::new()
+                } else {
+                    std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
+                };
                 tracing::debug!(
                     index = i,
                     credential_id = %hex::encode(&id),
@@ -441,13 +497,21 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 // ---------------------------------------------------------------------------
 
 /// Convert a wide (UTF-16) null-terminated pointer to an Option<String>.
+///
+/// Scans up to `MAX_WIDE_STRING_LEN` characters for a null terminator.
+/// Returns `None` if the pointer is null or no terminator is found.
+const MAX_WIDE_STRING_LEN: usize = 4096;
+
 unsafe fn wide_ptr_to_string(ptr: *const u16) -> Option<String> {
     if ptr.is_null() {
         return None;
     }
     let mut len = 0;
-    while *ptr.add(len) != 0 {
+    while len < MAX_WIDE_STRING_LEN && *ptr.add(len) != 0 {
         len += 1;
+    }
+    if len == MAX_WIDE_STRING_LEN {
+        tracing::warn!("wide string exceeded maximum scan length, truncating");
     }
     let slice = std::slice::from_raw_parts(ptr, len);
     String::from_utf16(slice).ok()
