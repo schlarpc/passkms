@@ -333,6 +333,8 @@ impl CredentialStore {
             rp_id: None,
         };
 
+        let mut is_managed = false;
+
         for tag in resp.tags() {
             let key = tag.tag_key();
             if !key.starts_with(TAG_PREFIX) {
@@ -340,6 +342,9 @@ impl CredentialStore {
             }
             let value = tag.tag_value();
             match key {
+                k if k == TAG_MANAGED => {
+                    is_managed = true;
+                }
                 k if k == TAG_USER_HANDLE => {
                     use data_encoding::BASE64URL_NOPAD;
                     match BASE64URL_NOPAD.decode(value.as_bytes()) {
@@ -364,6 +369,12 @@ impl CredentialStore {
                 }
                 _ => {}
             }
+        }
+
+        if !is_managed {
+            return Err(CredentialStoreError::NotFound(format!(
+                "key {key_id} is not a passkms-managed credential"
+            )));
         }
 
         Ok(metadata)

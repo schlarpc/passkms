@@ -157,14 +157,10 @@ in both exclude list and allow list paths.
 
 All Tag builder `.unwrap()` calls replaced with `.expect("tag_key and tag_value both set")`.
 
-### L10. `CredentialMetadata` returned with all-`None` fields treated as valid
-**Category:** Type safety
-**Files:** `crates/passkms-core/src/credential_store.rs:301-345`
+### ~~L10. `CredentialMetadata` returned with all-`None` fields treated as valid~~ RESOLVED
 
-If a KMS key has no passkms tags, `get_credential_metadata` returns a `CredentialMetadata`
-with only `key_id` populated and all optional fields `None`. The `TAG_MANAGED` tag is set
-during creation but never checked during discovery, so non-passkms keys could appear in
-results.
+`get_credential_metadata` now checks for the `TAG_MANAGED` tag and returns `NotFound` for
+keys that are not passkms-managed credentials.
 
 ### ~~L11. `passkms-server` `list_credentials` creates redundant AWS client~~ RESOLVED
 
@@ -223,7 +219,7 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 |----------|-------|----------|-----------|------------|
 | High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
 | Medium | 10 | 8 | 2 | ~~Type safety, spec compliance, performance, docs, error handling~~, test infra, UP flag |
-| Low | 18 | 6 | 12 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
+| Low | 18 | 7 | 11 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
 
 ### Remaining priorities
 
