@@ -219,9 +219,18 @@ impl Authenticator {
             // Non-discoverable flow: try each credential in the allow list
             let mut found = Vec::new();
             for cred_id_bytes in &request.allow_list {
-                let cred_id = String::from_utf8_lossy(cred_id_bytes);
+                let cred_id = match String::from_utf8(cred_id_bytes.clone()) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        tracing::warn!(
+                            credential_id_hex = %hex::encode(cred_id_bytes),
+                            "skipping non-UTF-8 credential ID in allow list"
+                        );
+                        continue;
+                    }
+                };
                 match self.store.get_signing_key(&request.rp_id, &cred_id).await {
-                    Ok(_) => found.push((cred_id.to_string(), None)),
+                    Ok(_) => found.push((cred_id, None)),
                     Err(_) => continue,
                 }
             }
