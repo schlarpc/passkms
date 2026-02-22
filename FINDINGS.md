@@ -163,13 +163,11 @@ keys that are not passkms-managed credentials.
 `list_credentials` now uses the passed `authenticator.store()` instead of creating
 a redundant AWS client.
 
-### L12. No timeout on KMS operations in COM plugin
-**Category:** Robustness
-**Files:** `crates/passkms-windows/src/com_plugin.rs:199-201,369-371`
+### ~~L12. No timeout on KMS operations in COM plugin~~ RESOLVED
 
-`runtime.block_on()` has no timeout. If KMS is unreachable, the COM thread blocks
-indefinitely. Combined with `CancelOperation` being a no-op, there is no way to interrupt
-stuck operations.
+Both `MakeCredential` and `GetAssertion` now wrap their KMS operations in a 30-second
+`tokio::time::timeout`. If KMS is unreachable, the COM method returns `E_FAIL` instead
+of blocking indefinitely.
 
 ### ~~L13. `.envrc` watches non-existent `rust-toolchain.toml`~~ RESOLVED
 
@@ -210,7 +208,7 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 |----------|-------|----------|-----------|------------|
 | High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
 | Medium | 10 | 9 | 1 | ~~Type safety, spec compliance, performance, docs, error handling, UP flag~~, test infra |
-| Low | 18 | 9 | 9 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
+| Low | 18 | 10 | 8 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
 
 ### Remaining priorities
 

@@ -5,11 +5,16 @@
 //! the responses back to CBOR for the platform.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use windows::core::{implement, HRESULT};
 
 use crate::bindings::*;
 use crate::util::{wide_nul, wide_ptr_to_string};
+
+/// Timeout for KMS operations via the COM plugin.
+/// Prevents indefinite blocking if KMS is unreachable.
+const KMS_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Version constants for WebAuthn COM structs.
 /// These must match the versions expected by `webauthn.dll`'s encode functions.
@@ -229,9 +234,21 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         };
 
         tracing::debug!("delegating MakeCredential to passkms-core");
-        let result = self
-            .runtime
-            .block_on(self.authenticator.make_credential(&core_request));
+        let result = self.runtime.block_on(async {
+            tokio::time::timeout(
+                KMS_OPERATION_TIMEOUT,
+                self.authenticator.make_credential(&core_request),
+            )
+            .await
+        });
+
+        let result = match result {
+            Ok(inner) => inner,
+            Err(_) => {
+                tracing::error!("MakeCredential timed out");
+                return windows::Win32::Foundation::E_FAIL;
+            }
+        };
 
         match result {
             Ok(core_response) => {
@@ -417,9 +434,21 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         };
 
         tracing::debug!("delegating GetAssertion to passkms-core");
-        let result = self
-            .runtime
-            .block_on(self.authenticator.get_assertion(&core_request));
+        let result = self.runtime.block_on(async {
+            tokio::time::timeout(
+                KMS_OPERATION_TIMEOUT,
+                self.authenticator.get_assertion(&core_request),
+            )
+            .await
+        });
+
+        let result = match result {
+            Ok(inner) => inner,
+            Err(_) => {
+                tracing::error!("GetAssertion timed out");
+                return windows::Win32::Foundation::E_FAIL;
+            }
+        };
 
         match result {
             Ok(assertions) => {
