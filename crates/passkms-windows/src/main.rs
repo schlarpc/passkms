@@ -28,6 +28,7 @@ mod bindings;
 mod com_factory;
 mod com_plugin;
 mod registration;
+mod util;
 
 use com_factory::{PasskeyClassFactory, PASSKEY_CLSID};
 

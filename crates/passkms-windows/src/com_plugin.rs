@@ -9,6 +9,7 @@ use std::sync::Arc;
 use windows::core::{implement, HRESULT};
 
 use crate::bindings::*;
+use crate::util::{wide_nul, wide_ptr_to_string};
 
 /// The plugin authenticator COM object.
 ///
@@ -191,7 +192,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 // Build the attestation struct for encoding.
                 // Use "none" attestation format and current version, matching the
                 // Contoso sample. The encode function rejects older versions.
-                let fmt_wide = wide_string("none\0");
+                let fmt_wide = wide_nul("none");
                 let mut attestation: WEBAUTHN_CREDENTIAL_ATTESTATION = unsafe { std::mem::zeroed() };
                 attestation.dwVersion = 8; // WEBAUTHN_CREDENTIAL_ATTESTATION_CURRENT_VERSION
                 attestation.pwszFormatType = fmt_wide.as_ptr();
@@ -393,7 +394,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                     "using first assertion"
                 );
 
-                let cred_type_wide = wide_string("public-key\0");
+                let cred_type_wide = wide_nul("public-key");
 
                 let mut webauthn_assertion: WEBAUTHN_ASSERTION = std::mem::zeroed();
                 webauthn_assertion.dwVersion = 6; // WEBAUTHN_ASSERTION_CURRENT_VERSION
@@ -492,32 +493,3 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Convert a wide (UTF-16) null-terminated pointer to an Option<String>.
-///
-/// Scans up to `MAX_WIDE_STRING_LEN` characters for a null terminator.
-/// Returns `None` if the pointer is null or no terminator is found.
-const MAX_WIDE_STRING_LEN: usize = 4096;
-
-unsafe fn wide_ptr_to_string(ptr: *const u16) -> Option<String> {
-    if ptr.is_null() {
-        return None;
-    }
-    let mut len = 0;
-    while len < MAX_WIDE_STRING_LEN && *ptr.add(len) != 0 {
-        len += 1;
-    }
-    if len == MAX_WIDE_STRING_LEN {
-        tracing::warn!("wide string exceeded maximum scan length, truncating");
-    }
-    let slice = std::slice::from_raw_parts(ptr, len);
-    String::from_utf16(slice).ok()
-}
-
-/// Create a null-terminated UTF-16 string from a Rust &str (must end with \0).
-fn wide_string(s: &str) -> Vec<u16> {
-    s.encode_utf16().collect()
-}

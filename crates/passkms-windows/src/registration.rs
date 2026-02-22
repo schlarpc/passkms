@@ -14,6 +14,7 @@ use windows::Win32::System::Registry::{
 
 use crate::bindings::*;
 use crate::com_factory::PASSKEY_CLSID;
+use crate::util::{pcwstr, wide_nul};
 
 /// NTE_NOT_FOUND: The specified item was not found. (0x80090011)
 const NTE_NOT_FOUND: HRESULT = HRESULT(0x80090011_u32 as i32);
@@ -321,11 +322,13 @@ fn save_op_sign_key(data: &[u8]) -> windows::core::Result<()> {
         registry_value = REGISTRY_VALUE_OP_SIGN_KEY,
         "saving operation signing key to registry"
     );
+    let reg_key_wide = wide_nul(REGISTRY_KEY);
+    let reg_value_wide = wide_nul(REGISTRY_VALUE_OP_SIGN_KEY);
     unsafe {
         let mut hkey = HKEY::default();
         RegCreateKeyExW(
             HKEY_CURRENT_USER,
-            wide_pcwstr(REGISTRY_KEY),
+            pcwstr(&reg_key_wide),
             None,
             None,
             REG_OPTION_NON_VOLATILE,
@@ -336,13 +339,7 @@ fn save_op_sign_key(data: &[u8]) -> windows::core::Result<()> {
         )
         .ok()?;
 
-        let result = RegSetValueExW(
-            hkey,
-            wide_pcwstr(REGISTRY_VALUE_OP_SIGN_KEY),
-            Some(0),
-            REG_BINARY,
-            Some(data),
-        );
+        let result = RegSetValueExW(hkey, pcwstr(&reg_value_wide), Some(0), REG_BINARY, Some(data));
         let _ = RegCloseKey(hkey);
         result.ok()
     }
@@ -356,11 +353,13 @@ pub fn load_op_sign_key() -> Option<Vec<u8>> {
         registry_value = REGISTRY_VALUE_OP_SIGN_KEY,
         "loading operation signing key from registry"
     );
+    let reg_key_wide = wide_nul(REGISTRY_KEY);
+    let reg_value_wide = wide_nul(REGISTRY_VALUE_OP_SIGN_KEY);
     unsafe {
         let mut hkey = HKEY::default();
         RegCreateKeyExW(
             HKEY_CURRENT_USER,
-            wide_pcwstr(REGISTRY_KEY),
+            pcwstr(&reg_key_wide),
             None,
             None,
             REG_OPTION_NON_VOLATILE,
@@ -376,7 +375,7 @@ pub fn load_op_sign_key() -> Option<Vec<u8>> {
         let mut size: u32 = 0;
         RegQueryValueExW(
             hkey,
-            wide_pcwstr(REGISTRY_VALUE_OP_SIGN_KEY),
+            pcwstr(&reg_value_wide),
             None,
             None,
             None,
@@ -393,7 +392,7 @@ pub fn load_op_sign_key() -> Option<Vec<u8>> {
         let mut buf = vec![0u8; size as usize];
         RegQueryValueExW(
             hkey,
-            wide_pcwstr(REGISTRY_VALUE_OP_SIGN_KEY),
+            pcwstr(&reg_value_wide),
             None,
             None,
             Some(buf.as_mut_ptr()),
@@ -410,29 +409,8 @@ pub fn load_op_sign_key() -> Option<Vec<u8>> {
 }
 
 fn delete_registry_key() {
+    let reg_key_wide = wide_nul(REGISTRY_KEY);
     unsafe {
-        let _ = RegDeleteTreeW(HKEY_CURRENT_USER, wide_pcwstr(REGISTRY_KEY));
+        let _ = RegDeleteTreeW(HKEY_CURRENT_USER, pcwstr(&reg_key_wide));
     }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Create a null-terminated UTF-16 string.
-fn wide_nul(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-/// Create a PCWSTR from a string literal (for registry API calls).
-///
-/// The returned PCWSTR borrows from a thread-local or leaked allocation.
-/// Only use for short-lived registry calls where the string doesn't need
-/// to outlive the call.
-fn wide_pcwstr(s: &str) -> windows::core::PCWSTR {
-    // For registry calls we need a PCWSTR. The windows crate accepts
-    // impl Into<PCWSTR> for many params. We allocate a Vec and leak it
-    // since these are called with static strings.
-    let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
-    windows::core::PCWSTR(wide.leak().as_ptr())
 }
