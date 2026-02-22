@@ -30,10 +30,6 @@ pub enum AuthenticatorError {
     #[error("signing: {0}")]
     Signing(#[from] signature::Error),
 
-    /// No supported algorithm in the request.
-    #[error("no supported algorithm (only ES256 is supported)")]
-    UnsupportedAlgorithm,
-
     /// A credential in the exclude list already exists for this RP.
     #[error("credential already exists (excluded)")]
     CredentialExcluded,
@@ -123,11 +119,6 @@ impl Authenticator {
             store,
             aaguid: Aaguid::from(PASSKMS_AAGUID),
         }
-    }
-
-    /// Create a new authenticator with a custom AAGUID.
-    pub fn with_aaguid(store: CredentialStore, aaguid: Aaguid) -> Self {
-        Self { store, aaguid }
     }
 
     /// Access the underlying credential store.
