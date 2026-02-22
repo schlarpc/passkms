@@ -93,12 +93,17 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             WebAuthNFreeDecodedMakeCredentialRequest(decoded);
             return windows::Win32::Foundation::E_INVALIDARG;
         } else {
-            std::str::from_utf8(std::slice::from_raw_parts(
+            match std::str::from_utf8(std::slice::from_raw_parts(
                 decoded_ref.pbRpId,
                 decoded_ref.cbRpId as usize,
-            ))
-            .unwrap_or("unknown")
-            .to_string()
+            )) {
+                Ok(s) => s.to_string(),
+                Err(e) => {
+                    tracing::error!(error = %e, "invalid UTF-8 in RP ID");
+                    WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+                    return windows::Win32::Foundation::E_INVALIDARG;
+                }
+            }
         };
 
         let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
@@ -304,12 +309,17 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             WebAuthNFreeDecodedGetAssertionRequest(decoded);
             return windows::Win32::Foundation::E_INVALIDARG;
         } else {
-            std::str::from_utf8(std::slice::from_raw_parts(
+            match std::str::from_utf8(std::slice::from_raw_parts(
                 decoded_ref.pbRpId,
                 decoded_ref.cbRpId as usize,
-            ))
-            .unwrap_or("unknown")
-            .to_string()
+            )) {
+                Ok(s) => s.to_string(),
+                Err(e) => {
+                    tracing::error!(error = %e, "invalid UTF-8 in RP ID");
+                    WebAuthNFreeDecodedGetAssertionRequest(decoded);
+                    return windows::Win32::Foundation::E_INVALIDARG;
+                }
+            }
         };
 
         let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
