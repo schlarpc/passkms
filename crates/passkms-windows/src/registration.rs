@@ -263,17 +263,7 @@ fn build_authenticator_info() -> Vec<u8> {
         // 0x01: versions
         (
             Value::Integer(0x01.into()),
-            Value::Array(vec![
-                Value::Text("FIDO_2_0".to_string()),
-                Value::Text("FIDO_2_1".to_string()),
-            ]),
-        ),
-        // 0x02: extensions
-        (
-            Value::Integer(0x02.into()),
-            Value::Array(vec![
-                Value::Text("hmac-secret".to_string()),
-            ]),
+            Value::Array(vec![Value::Text("FIDO_2_0".to_string())]),
         ),
         // 0x03: aaguid (16-byte byte string)
         (
@@ -312,9 +302,9 @@ fn build_authenticator_info() -> Vec<u8> {
     tracing::debug!(
         cbor_len = buf.len(),
         aaguid = %hex::encode(PASSKMS_AAGUID),
-        versions = "FIDO_2_0, FIDO_2_1",
+        versions = "FIDO_2_0",
         algorithms = "ES256 (-7)",
-        options = "rk=true, up=true, uv=true",
+        options = "rk=true, up=false, uv=false",
         "built authenticatorGetInfo CBOR"
     );
     buf
