@@ -175,15 +175,10 @@ stuck operations.
 
 Removed `rust-toolchain.toml` from the `watch_file` directive.
 
-### L14. No `buildDepsOnly` cache for Windows cross-compilation
-**Category:** Nix / Build performance
-**Files:** `flake.nix:164-170`
+### ~~L14. No `buildDepsOnly` cache for Windows cross-compilation~~ RESOLVED
 
-The `passkms-windows` build does not use a separate `cargoArtifacts` for the cross-compilation
-target. Dependencies are rebuilt from scratch every time, making builds slower than necessary.
-
-**Fix:** Create a `buildDepsOnly` derivation for the Windows target and pass it as
-`cargoArtifacts`.
+Added a `buildDepsOnly` derivation for the Windows cross-compilation target, passed as
+`cargoArtifacts` to the `passkms-windows` build. Dependencies are now cached separately.
 
 ### ~~L15. Silent base64 decode failure for `user_handle` in metadata~~ RESOLVED
 
@@ -215,7 +210,7 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 |----------|-------|----------|-----------|------------|
 | High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
 | Medium | 10 | 9 | 1 | ~~Type safety, spec compliance, performance, docs, error handling, UP flag~~, test infra |
-| Low | 18 | 8 | 10 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
+| Low | 18 | 9 | 9 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
 
 ### Remaining priorities
 

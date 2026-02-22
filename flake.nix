@@ -154,14 +154,20 @@
             doCheck = false;
           });
 
-          # Windows cross-compiled build
-          passkms-windows = craneLib.buildPackage ((commonArgs // {
-            pname = "passkms-windows";
-            cargoExtraArgs = "-p passkms-windows";
-            nativeBuildInputs = crossBuildInputsFor system;
-            # Tests can't run on Linux
-            doCheck = false;
-          }) // msvcEnvFor system);
+          # Windows cross-compiled build (with cached dependency artifacts)
+          passkms-windows =
+            let
+              windowsArgs = (commonArgs // {
+                pname = "passkms-windows";
+                cargoExtraArgs = "-p passkms-windows";
+                nativeBuildInputs = crossBuildInputsFor system;
+                doCheck = false;
+              }) // msvcEnvFor system;
+              windowsCargoArtifacts = craneLib.buildDepsOnly windowsArgs;
+            in
+            craneLib.buildPackage (windowsArgs // {
+              cargoArtifacts = windowsCargoArtifacts;
+            });
         });
 
       # Checks run by `nix flake check`
