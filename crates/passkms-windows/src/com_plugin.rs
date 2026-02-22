@@ -144,6 +144,31 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName)
         };
 
+        let mut exclude_list = Vec::new();
+        let excl_list_valid = decoded_ref.CredentialList.cCredentials == 0
+            || !decoded_ref.CredentialList.ppCredentials.is_null();
+        if !excl_list_valid {
+            tracing::error!("ppCredentials is null with non-zero cCredentials in exclude list");
+            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        }
+        for i in 0..decoded_ref.CredentialList.cCredentials {
+            let cred_ptr = *decoded_ref.CredentialList.ppCredentials.add(i as usize);
+            if !cred_ptr.is_null() {
+                let cred = &*cred_ptr;
+                if cred.pbId.is_null() && cred.cbId > 0 {
+                    tracing::warn!(index = i, "exclude list credential has null pbId with non-zero cbId, skipping");
+                    continue;
+                }
+                let id = if cred.pbId.is_null() {
+                    Vec::new()
+                } else {
+                    std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
+                };
+                exclude_list.push(id);
+            }
+        }
+
         // All data copied — free the decoded request immediately
         WebAuthNFreeDecodedMakeCredentialRequest(decoded);
 
@@ -155,6 +180,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             display_name = ?user_display_name,
             discoverable,
             rp_name = ?rp_name,
+            exclude_list_len = exclude_list.len(),
             "decoded MakeCredential fields"
         );
 
@@ -166,6 +192,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             user_name: user_name.clone(),
             user_display_name: user_display_name.clone(),
             discoverable,
+            exclude_list,
         };
 
         tracing::debug!("delegating MakeCredential to passkms-core");

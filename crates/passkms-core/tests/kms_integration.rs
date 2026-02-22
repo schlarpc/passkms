@@ -18,7 +18,7 @@ use passkms_core::{Authenticator, CredentialStore, GetAssertionRequest, MakeCred
 /// Check if we should run KMS integration tests.
 /// Only runs when `RUN_KMS_TESTS=1` is set (opt-in, requires AWS credentials).
 fn should_run() -> bool {
-    std::env::var("RUN_KMS_TESTS").map_or(false, |v| v == "1")
+    std::env::var("RUN_KMS_TESTS").is_ok_and(|v| v == "1")
 }
 
 async fn make_kms_client() -> Client {
@@ -63,6 +63,7 @@ async fn test_full_registration_and_authentication_flow() {
         user_name: Some("testuser".to_string()),
         user_display_name: Some("Test User".to_string()),
         discoverable: true,
+        exclude_list: vec![],
     };
 
     let reg_response = authenticator.make_credential(&request).await.unwrap();

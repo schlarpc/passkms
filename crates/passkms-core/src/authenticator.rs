@@ -36,6 +36,10 @@ pub enum AuthenticatorError {
     #[error("no supported algorithm (only ES256 is supported)")]
     UnsupportedAlgorithm,
 
+    /// A credential in the exclude list already exists for this RP.
+    #[error("credential already exists (excluded)")]
+    CredentialExcluded,
+
     /// No credential found for the given allow list.
     #[error("no matching credential found")]
     NoCredential,
@@ -62,6 +66,9 @@ pub struct MakeCredentialRequest {
     pub user_display_name: Option<String>,
     /// Whether to create a discoverable (resident) credential.
     pub discoverable: bool,
+    /// Credential IDs to exclude. If any match an existing credential for this RP,
+    /// registration must fail (WebAuthn Section 6.3.2 step 7).
+    pub exclude_list: Vec<Vec<u8>>,
 }
 
 /// Result of a successful makeCredential operation.
@@ -138,7 +145,23 @@ impl Authenticator {
         &self,
         request: &MakeCredentialRequest,
     ) -> Result<MakeCredentialResponse, AuthenticatorError> {
-        // 1. Create the KMS key and alias
+        // 1. Check exclude list: if any credential already exists, reject
+        for cred_id_bytes in &request.exclude_list {
+            let cred_id = match String::from_utf8(cred_id_bytes.clone()) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if self
+                .store
+                .get_signing_key(&request.rp_id, &cred_id)
+                .await
+                .is_ok()
+            {
+                return Err(AuthenticatorError::CredentialExcluded);
+            }
+        }
+
+        // 2. Create the KMS key and alias
         let (key_id, _signer) = self
             .store
             .create_credential(
@@ -149,16 +172,16 @@ impl Authenticator {
             )
             .await?;
 
-        // 2. Get the COSE public key
+        // 3. Get the COSE public key
         let cose_key = self.store.get_public_key(&key_id).await?;
 
-        // 3. Build attested credential data
+        // 4. Build attested credential data
         let credential_id = key_id.as_bytes().to_vec();
         let attested_credential_data =
             AttestedCredentialData::new(self.aaguid, credential_id.clone(), cose_key)
                 .map_err(|e| AuthenticatorError::Internal(e.to_string()))?;
 
-        // 4. Build authenticator data
+        // 5. Build authenticator data
         let counter = current_timestamp_counter();
         let auth_data = AuthenticatorData::new(&request.rp_id, Some(counter))
             .set_attested_credential_data(attested_credential_data)
@@ -166,7 +189,7 @@ impl Authenticator {
 
         let auth_data_bytes = auth_data.to_vec();
 
-        // 5. Build "none" attestation object (no attestation statement).
+        // 6. Build "none" attestation object (no attestation statement).
         //    The Windows plugin platform handles attestation itself, so we
         //    use the "none" format to avoid a wasted KMS Sign call.
         let attestation_object_value = ciborium::Value::Map(vec![
