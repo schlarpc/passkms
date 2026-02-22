@@ -1,11 +1,11 @@
 //! Integration tests against real AWS KMS.
 //!
-//! These tests require:
+//! These tests are opt-in and require:
+//! - `RUN_KMS_TESTS=1` environment variable
 //! - Valid AWS credentials configured (default profile)
 //! - KMS access permissions (CreateKey, CreateAlias, Sign, GetPublicKey, etc.)
 //!
-//! Run with: `cargo nextest run --test kms_integration`
-//! Skip in CI by checking for the KMS_INTEGRATION_TEST env var.
+//! Run with: `RUN_KMS_TESTS=1 cargo nextest run --test kms_integration`
 
 use aws_sdk_kms::Client;
 use p256::ecdsa::VerifyingKey;
@@ -16,9 +16,9 @@ use sha2::{Digest, Sha256};
 use passkms_core::{Authenticator, CredentialStore, GetAssertionRequest, MakeCredentialRequest};
 
 /// Check if we should run KMS integration tests.
-/// Always runs unless `SKIP_KMS_TESTS=1` is set.
+/// Only runs when `RUN_KMS_TESTS=1` is set (opt-in, requires AWS credentials).
 fn should_run() -> bool {
-    std::env::var("SKIP_KMS_TESTS").map_or(true, |v| v != "1")
+    std::env::var("RUN_KMS_TESTS").map_or(false, |v| v == "1")
 }
 
 async fn make_kms_client() -> Client {
@@ -44,7 +44,7 @@ async fn cleanup_key(client: &Client, rp_id: &str, key_id: &str) {
 #[tokio::test]
 async fn test_full_registration_and_authentication_flow() {
     if !should_run() {
-        eprintln!("Skipping KMS integration test (SKIP_KMS_TESTS=1)");
+        eprintln!("Skipping KMS integration test (set RUN_KMS_TESTS=1 to run)");
         return;
     }
 
@@ -78,15 +78,15 @@ async fn test_full_registration_and_authentication_flow() {
     let att_obj: ciborium::Value =
         ciborium::de::from_reader(reg_response.attestation_object.as_slice()).unwrap();
     if let ciborium::Value::Map(entries) = &att_obj {
-        // Check fmt is "packed"
+        // Check fmt is "none" (platform handles attestation)
         let fmt = entries
             .iter()
             .find(|(k, _)| k == &ciborium::Value::Text("fmt".to_string()))
             .map(|(_, v)| v);
         assert_eq!(
             fmt,
-            Some(&ciborium::Value::Text("packed".to_string())),
-            "attestation format should be 'packed'"
+            Some(&ciborium::Value::Text("none".to_string())),
+            "attestation format should be 'none'"
         );
     } else {
         panic!("attestation object should be a CBOR map");
@@ -171,7 +171,7 @@ async fn test_full_registration_and_authentication_flow() {
 #[tokio::test]
 async fn test_credential_metadata_stored_in_tags() {
     if !should_run() {
-        eprintln!("Skipping KMS integration test (SKIP_KMS_TESTS=1)");
+        eprintln!("Skipping KMS integration test (set RUN_KMS_TESTS=1 to run)");
         return;
     }
 
