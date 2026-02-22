@@ -204,12 +204,10 @@ target. Dependencies are rebuilt from scratch every time, making builds slower t
 **Fix:** Create a `buildDepsOnly` derivation for the Windows target and pass it as
 `cargoArtifacts`.
 
-### L15. Silent base64 decode failure for `user_handle` in metadata
-**Category:** Error handling
-**Files:** `crates/passkms-core/src/credential_store.rs:329`
+### ~~L15. Silent base64 decode failure for `user_handle` in metadata~~ RESOLVED
 
-Base64 decode failure for `user_handle` silently becomes `None` via `.ok()`. Data corruption
-would be masked without any log entry.
+Base64 decode failures for `user_handle` now log a warning with the key ID and error
+instead of silently becoming `None`.
 
 ### L16. `Authenticator` does not derive `Clone`
 **Category:** API design

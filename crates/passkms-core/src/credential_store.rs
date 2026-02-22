@@ -348,7 +348,16 @@ impl CredentialStore {
             match key {
                 k if k == TAG_USER_HANDLE => {
                     use data_encoding::BASE64URL_NOPAD;
-                    metadata.user_handle = BASE64URL_NOPAD.decode(value.as_bytes()).ok();
+                    match BASE64URL_NOPAD.decode(value.as_bytes()) {
+                        Ok(decoded) => metadata.user_handle = Some(decoded),
+                        Err(e) => {
+                            tracing::warn!(
+                                key_id = %key_id,
+                                error = %e,
+                                "failed to decode user_handle base64 tag"
+                            );
+                        }
+                    }
                 }
                 k if k == TAG_DISPLAY_NAME => {
                     metadata.display_name = Some(value.to_string());
