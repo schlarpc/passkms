@@ -102,13 +102,4 @@ mod tests {
         assert_send_sync::<KmsSigner>();
     }
 
-    #[test]
-    fn kms_signer_stores_key_id() {
-        // We can't construct a real KMS client in unit tests without credentials,
-        // but we can verify the struct holds the key_id correctly.
-        // Integration tests with real KMS are in a separate test module.
-
-        // Verify the types compile and the API surface is correct
-        let _: fn(Client, String) -> KmsSigner = KmsSigner::new;
-    }
 }

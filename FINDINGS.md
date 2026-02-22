@@ -146,13 +146,9 @@ report as "ignored" and can be run with `--run-ignored`.
 Cleanup (`cleanup_key`) only runs if all assertions pass. A `Drop` guard or `scopeguard`
 pattern would prevent resource leaks when tests fail.
 
-### L7. `kms_signer_stores_key_id` test is tautological
-**Category:** Testing
-**Files:** `crates/passkms-core/src/kms_signer.rs:105-113`
+### ~~L7. `kms_signer_stores_key_id` test is tautological~~ RESOLVED
 
-The test only verifies that `KmsSigner::new` has a specific type signature (`fn(Client, String)
--> KmsSigner`). It does not construct a `KmsSigner` or verify any behavior. The test name
-is misleading.
+Removed the misleading test that only checked a type signature.
 
 ### ~~L8. Unnecessary `clone()` in credential ID UTF-8 conversion~~ RESOLVED
 
