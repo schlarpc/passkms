@@ -190,13 +190,9 @@ a redundant AWS client.
 indefinitely. Combined with `CancelOperation` being a no-op, there is no way to interrupt
 stuck operations.
 
-### L13. `.envrc` watches non-existent `rust-toolchain.toml`
-**Category:** Nix / Developer experience
-**Files:** `.envrc:3`
+### ~~L13. `.envrc` watches non-existent `rust-toolchain.toml`~~ RESOLVED
 
-The `watch_file` directive references `rust-toolchain.toml` which does not exist. The Rust
-toolchain is managed by the Nix flake, not a `rust-toolchain.toml` file. Harmless but
-misleading.
+Removed `rust-toolchain.toml` from the `watch_file` directive.
 
 ### L14. No `buildDepsOnly` cache for Windows cross-compilation
 **Category:** Nix / Build performance
