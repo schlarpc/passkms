@@ -210,13 +210,10 @@ The Nix `checks` include clippy for the native crates but not for `passkms-windo
 issues in the Windows crate would only be caught by the cross-compilation build, not a
 dedicated lint check.
 
-### L18. `nix-direnv` included as flake input but unused by `.envrc`
-**Category:** Nix
-**Files:** `flake.nix:11`, `.envrc:1`
+### ~~L18. `nix-direnv` included as flake input but unused by `.envrc`~~ RESOLVED
 
-The flake declares `nix-direnv` as an input, includes it in `devShells`, and exposes it via
-`lib`. But `.envrc` fetches `nix-direnv` from nixpkgs with `--inputs-from .` rather than using
-the flake's input. The flake input and `lib` export are dead code.
+Removed the unused `nix-direnv` flake input, devShell entry, and `lib` export.
+The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 
 ---
 

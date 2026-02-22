@@ -12,15 +12,9 @@
     };
 
     crane.url = "github:ipetkov/crane";
-
-    # nix-direnv for the development shell
-    nix-direnv = {
-      url = "github:nix-community/nix-direnv";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, systems, rust-overlay, crane, nix-direnv, ... }:
+  outputs = { self, nixpkgs, systems, rust-overlay, crane, ... }:
     let
       eachSystem = nixpkgs.lib.genAttrs (import systems);
 
@@ -245,9 +239,6 @@
               pkgs.llvmPackages.clang-unwrapped  # clang-cl
               pkgs.llvmPackages.lld              # lld-link
               pkgs.llvmPackages.llvm             # llvm-lib
-
-              # nix-direnv for this flake's shell
-              nix-direnv.packages.${system}.default
             ];
 
             # Environment variables for development
@@ -255,9 +246,5 @@
           };
         });
 
-      # Expose nix-direnv for .envrc to use
-      lib = {
-        inherit nix-direnv;
-      };
     };
 }
