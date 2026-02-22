@@ -34,6 +34,28 @@ async fn cleanup_key(client: &Client, rp_id: &str, key_id: &str) {
         .await;
 }
 
+/// RAII guard that cleans up a KMS key on drop, even if assertions panic.
+struct CleanupGuard {
+    client: Client,
+    rp_id: String,
+    key_id: String,
+}
+
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        let client = self.client.clone();
+        let rp_id = self.rp_id.clone();
+        let key_id = self.key_id.clone();
+        // Use the current tokio runtime to run async cleanup synchronously on drop.
+        let handle = tokio::runtime::Handle::current();
+        // spawn_blocking + block_on to avoid blocking the async executor thread
+        let _ = std::thread::spawn(move || {
+            handle.block_on(cleanup_key(&client, &rp_id, &key_id));
+        })
+        .join();
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires AWS credentials (run with --run-ignored)"]
 async fn test_full_registration_and_authentication_flow() {
@@ -58,6 +80,13 @@ async fn test_full_registration_and_authentication_flow() {
 
     let reg_response = authenticator.make_credential(&request).await.unwrap();
     let cred_id = String::from_utf8(reg_response.credential_id.clone()).unwrap();
+
+    // Ensure cleanup runs even if assertions below panic
+    let _guard = CleanupGuard {
+        client: client.clone(),
+        rp_id: rp_id.to_string(),
+        key_id: cred_id.clone(),
+    };
 
     // Verify authenticator data has expected length (37 bytes base + attested cred data)
     assert!(
@@ -155,8 +184,7 @@ async fn test_full_registration_and_authentication_flow() {
         "discovered credentials should include our test credential"
     );
 
-    // --- Cleanup ---
-    cleanup_key(&client, rp_id, &cred_id).await;
+    // Cleanup handled by _guard on drop
 }
 
 #[tokio::test]
@@ -176,6 +204,13 @@ async fn test_credential_metadata_stored_in_tags() {
         .await
         .unwrap();
 
+    // Ensure cleanup runs even if assertions below panic
+    let _guard = CleanupGuard {
+        client: client.clone(),
+        rp_id: rp_id.to_string(),
+        key_id: key_id.clone(),
+    };
+
     // List credentials and verify metadata
     let credentials = store.discover_credentials(rp_id).await.unwrap();
     assert!(!credentials.is_empty());
@@ -189,6 +224,5 @@ async fn test_credential_metadata_stored_in_tags() {
         Some(b"user-handle-123".as_slice())
     );
 
-    // Cleanup
-    cleanup_key(&client, rp_id, &key_id).await;
+    // Cleanup handled by _guard on drop
 }

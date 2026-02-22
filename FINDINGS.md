@@ -139,12 +139,10 @@ appropriate for a COM interop crate.
 Replaced `should_run()` early-return pattern with `#[ignore]` attribute. Tests now correctly
 report as "ignored" and can be run with `--run-ignored`.
 
-### L6. Integration tests leak KMS resources on assertion failure
-**Category:** Testing
-**Files:** `crates/passkms-core/tests/kms_integration.rs:169`
+### ~~L6. Integration tests leak KMS resources on assertion failure~~ RESOLVED
 
-Cleanup (`cleanup_key`) only runs if all assertions pass. A `Drop` guard or `scopeguard`
-pattern would prevent resource leaks when tests fail.
+Added a `CleanupGuard` struct with a `Drop` impl that runs `cleanup_key` even if
+assertions panic.
 
 ### ~~L7. `kms_signer_stores_key_id` test is tautological~~ RESOLVED
 
