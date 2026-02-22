@@ -70,16 +70,11 @@ behavior (e.g., creating a duplicate credential instead of detecting an existing
 Default log level changed from `debug` to `info`. Debug-level logging (which includes
 user names, display names, etc.) is still available via `RUST_LOG=debug`.
 
-### M5. No credential algorithm negotiation
-**Category:** Spec compliance
-**Files:** `crates/passkms-windows/src/com_plugin.rs:187`, `crates/passkms-core/src/authenticator.rs`
+### ~~M5. No credential algorithm negotiation~~ RESOLVED
 
-The `MakeCredential` implementation ignores `pubKeyCredParams` from the relying party and
-always creates an ES256 (P-256) key. Per the CTAP2 spec, the authenticator should check
-requested algorithms and return an error if none are supported.
-
-**Fix:** Check that ES256 (-7) is in the requested algorithm list; return
-`CTAP2_ERR_UNSUPPORTED_ALGORITHM` if not.
+`MakeCredentialRequest` now includes `pub_key_cred_params` and `make_credential` validates
+that ES256 (-7) is in the requested algorithm list, returning `UnsupportedAlgorithm` if not.
+The COM plugin extracts the algorithm list from the decoded CTAP2 request.
 
 ### ~~M6. Double `get_signing_key` calls in `get_assertion` authentication flow~~ RESOLVED
 

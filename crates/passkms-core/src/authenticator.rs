@@ -42,6 +42,10 @@ pub enum AuthenticatorError {
     #[error("invalid client data hash length: expected 32, got {0}")]
     InvalidClientDataHash(usize),
 
+    /// None of the requested algorithms are supported.
+    #[error("unsupported algorithm: only ES256 (-7) is supported")]
+    UnsupportedAlgorithm,
+
     /// Internal error building authenticator data.
     #[error("internal: {0}")]
     Internal(String),
@@ -67,6 +71,10 @@ pub struct MakeCredentialRequest {
     /// Credential IDs to exclude. If any match an existing credential for this RP,
     /// registration must fail (WebAuthn Section 6.3.2 step 7).
     pub exclude_list: Vec<Vec<u8>>,
+    /// COSE algorithm identifiers requested by the relying party (e.g., -7 for ES256).
+    /// If non-empty, registration fails unless ES256 (-7) is in the list.
+    /// An empty list is treated as "any algorithm acceptable" for backwards compatibility.
+    pub pub_key_cred_params: Vec<i64>,
 }
 
 /// Result of a successful makeCredential operation.
@@ -138,11 +146,20 @@ impl Authenticator {
         &self,
         request: &MakeCredentialRequest,
     ) -> Result<MakeCredentialResponse, AuthenticatorError> {
-        // 0. Validate client data hash length (must be SHA-256 = 32 bytes)
+        // 0. Validate inputs
         if request.client_data_hash.len() != 32 {
             return Err(AuthenticatorError::InvalidClientDataHash(
                 request.client_data_hash.len(),
             ));
+        }
+
+        // Check that ES256 (-7) is in the requested algorithm list (CTAP2 spec).
+        // An empty list is treated as "any algorithm acceptable".
+        const ES256_COSE_ALG: i64 = -7;
+        if !request.pub_key_cred_params.is_empty()
+            && !request.pub_key_cred_params.contains(&ES256_COSE_ALG)
+        {
+            return Err(AuthenticatorError::UnsupportedAlgorithm);
         }
 
         // 1. Check exclude list: if any credential already exists, reject

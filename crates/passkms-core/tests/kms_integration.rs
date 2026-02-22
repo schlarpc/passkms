@@ -64,6 +64,7 @@ async fn test_full_registration_and_authentication_flow() {
         user_display_name: Some("Test User".to_string()),
         discoverable: true,
         exclude_list: vec![],
+        pub_key_cred_params: vec![-7], // ES256
     };
 
     let reg_response = authenticator.make_credential(&request).await.unwrap();

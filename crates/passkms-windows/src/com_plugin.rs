@@ -149,6 +149,17 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName)
         };
 
+        let mut pub_key_cred_params = Vec::new();
+        let cred_params = &decoded_ref.WebAuthNCredentialParameters;
+        if cred_params.cCredentialParameters > 0
+            && !cred_params.pCredentialParameters.is_null()
+        {
+            for i in 0..cred_params.cCredentialParameters {
+                let param = &*cred_params.pCredentialParameters.add(i as usize);
+                pub_key_cred_params.push(param.lAlg as i64);
+            }
+        }
+
         let mut exclude_list = Vec::new();
         let excl_list_valid = decoded_ref.CredentialList.cCredentials == 0
             || !decoded_ref.CredentialList.ppCredentials.is_null();
@@ -198,6 +209,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             user_display_name: user_display_name.clone(),
             discoverable,
             exclude_list,
+            pub_key_cred_params,
         };
 
         tracing::debug!("delegating MakeCredential to passkms-core");

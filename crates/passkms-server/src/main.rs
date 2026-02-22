@@ -61,6 +61,7 @@ async fn register(authenticator: &Authenticator, rp_id: &str, user_name: &str) {
         user_display_name: Some(user_name.to_string()),
         discoverable: true,
         exclude_list: vec![],
+        pub_key_cred_params: vec![-7], // ES256
     };
 
     match authenticator.make_credential(&request).await {
