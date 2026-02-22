@@ -9,7 +9,7 @@ This document provides technical guidance for AI agents working on this Rust + N
 | Build core (debug) | `cargo build -p passkms-core` |
 | Check core | `cargo check -p passkms-core` |
 | Test core | `cargo nextest run -p passkms-core` |
-| Integration tests | `RUN_KMS_TESTS=1 cargo nextest run --test kms_integration` |
+| Integration tests | `cargo nextest run --test kms_integration --run-ignored` |
 | Lint core | `cargo clippy -p passkms-core --all-targets` |
 | Format | `cargo fmt` |
 | Format check | `cargo fmt --check` |
@@ -78,13 +78,13 @@ cargo nextest run -p passkms-core
 ```
 
 ### Integration Tests (KMS)
-Require real AWS credentials. Opt-in via environment variable:
+Require real AWS credentials. Marked with `#[ignore]` and opt-in via `--run-ignored`:
 
 ```bash
-RUN_KMS_TESTS=1 cargo nextest run --test kms_integration
+cargo nextest run --test kms_integration --run-ignored
 ```
 
-Without `RUN_KMS_TESTS=1`, these tests are skipped (return early with a message).
+Without `--run-ignored`, these tests are reported as "ignored" (not "passed").
 
 ## Code Style
 

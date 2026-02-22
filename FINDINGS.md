@@ -136,13 +136,10 @@ Blanket allow suppresses warnings for accidentally introduced unsafe code in new
 
 **Fix:** Use function-level `#[allow(unsafe_code)]` only where needed.
 
-### L5. Integration tests show as "passed" instead of "ignored" when skipped
-**Category:** Testing
-**Files:** `crates/passkms-core/tests/kms_integration.rs:20-22`
+### ~~L5. Integration tests show as "passed" instead of "ignored" when skipped~~ RESOLVED
 
-The `should_run()` pattern returns early, making skipped tests appear as "passed" in CI.
-The `#[ignore]` attribute would correctly report them as "ignored" and allow running with
-`--run-ignored`.
+Replaced `should_run()` early-return pattern with `#[ignore]` attribute. Tests now correctly
+report as "ignored" and can be run with `--run-ignored`.
 
 ### L6. Integration tests leak KMS resources on assertion failure
 **Category:** Testing

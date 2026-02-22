@@ -1,11 +1,10 @@
 //! Integration tests against real AWS KMS.
 //!
-//! These tests are opt-in and require:
-//! - `RUN_KMS_TESTS=1` environment variable
+//! These tests are marked `#[ignore]` and require:
 //! - Valid AWS credentials configured (default profile)
 //! - KMS access permissions (CreateKey, CreateAlias, Sign, GetPublicKey, etc.)
 //!
-//! Run with: `RUN_KMS_TESTS=1 cargo nextest run --test kms_integration`
+//! Run with: `cargo nextest run --test kms_integration --run-ignored`
 
 use aws_sdk_kms::Client;
 use p256::ecdsa::VerifyingKey;
@@ -14,12 +13,6 @@ use p256::PublicKey;
 use sha2::{Digest, Sha256};
 
 use passkms_core::{Authenticator, CredentialStore, GetAssertionRequest, MakeCredentialRequest};
-
-/// Check if we should run KMS integration tests.
-/// Only runs when `RUN_KMS_TESTS=1` is set (opt-in, requires AWS credentials).
-fn should_run() -> bool {
-    std::env::var("RUN_KMS_TESTS").is_ok_and(|v| v == "1")
-}
 
 async fn make_kms_client() -> Client {
     let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
@@ -42,12 +35,8 @@ async fn cleanup_key(client: &Client, rp_id: &str, key_id: &str) {
 }
 
 #[tokio::test]
+#[ignore = "requires AWS credentials (run with --run-ignored)"]
 async fn test_full_registration_and_authentication_flow() {
-    if !should_run() {
-        eprintln!("Skipping KMS integration test (set RUN_KMS_TESTS=1 to run)");
-        return;
-    }
-
     let client = make_kms_client().await;
     let store = CredentialStore::new(client.clone());
     let authenticator = Authenticator::new(store);
@@ -171,12 +160,8 @@ async fn test_full_registration_and_authentication_flow() {
 }
 
 #[tokio::test]
+#[ignore = "requires AWS credentials (run with --run-ignored)"]
 async fn test_credential_metadata_stored_in_tags() {
-    if !should_run() {
-        eprintln!("Skipping KMS integration test (set RUN_KMS_TESTS=1 to run)");
-        return;
-    }
-
     let client = make_kms_client().await;
     let store = CredentialStore::new(client.clone());
     let rp_id = "metadata-test.passkms.dev";
