@@ -32,6 +32,8 @@ const REGISTRY_VALUE_OP_SIGN_KEY: &str = "OpSignPubKey";
 pub fn is_registered() -> Result<bool, HRESULT> {
     tracing::debug!(clsid = ?PASSKEY_CLSID, "querying plugin registration state");
     let mut state = AUTHENTICATOR_STATE::Disabled;
+    // SAFETY: PASSKEY_CLSID is a valid GUID; state is a valid mutable reference.
+    // The FFI function reads the GUID and writes the state output.
     let hr = unsafe { WebAuthNPluginGetAuthenticatorState(&PASSKEY_CLSID, &mut state) };
     if hr.is_ok() {
         tracing::info!(?state, "plugin is registered");
@@ -78,6 +80,8 @@ pub fn register() -> Result<(), HRESULT> {
 
     tracing::debug!(clsid = ?PASSKEY_CLSID, "calling WebAuthNPluginAddAuthenticator");
     let mut response: *mut WEBAUTHN_PLUGIN_ADD_AUTHENTICATOR_RESPONSE = ptr::null_mut();
+    // SAFETY: options fields all point into local stack-owned Vecs (name, logo, rp_id,
+    // authenticator_info) that outlive this call. response is an out-parameter.
     let hr = unsafe { WebAuthNPluginAddAuthenticator(&options, &mut response) };
 
     if hr.is_err() {
@@ -86,7 +90,8 @@ pub fn register() -> Result<(), HRESULT> {
     }
     tracing::debug!("WebAuthNPluginAddAuthenticator succeeded");
 
-    // Save the operation signing public key to the registry
+    // SAFETY: response was populated by a successful WebAuthNPluginAddAuthenticator call.
+    // The pointer is valid until we call WebAuthNPluginFreeAddAuthenticatorResponse.
     let resp = unsafe { &*response };
     tracing::debug!(
         op_sign_key_len = resp.cbOpSignPubKey,
@@ -94,6 +99,8 @@ pub fn register() -> Result<(), HRESULT> {
         "registration response received"
     );
     if resp.cbOpSignPubKey > 0 && !resp.pbOpSignPubKey.is_null() {
+        // SAFETY: We checked pbOpSignPubKey is non-null and cbOpSignPubKey > 0.
+        // The data is valid for the lifetime of the response (freed below).
         let key_data = unsafe {
             std::slice::from_raw_parts(resp.pbOpSignPubKey, resp.cbOpSignPubKey as usize)
         };
@@ -111,6 +118,8 @@ pub fn register() -> Result<(), HRESULT> {
         }
     }
 
+    // SAFETY: response was allocated by WebAuthNPluginAddAuthenticator and has not
+    // been freed yet. All references to response data (key_data) are out of scope.
     unsafe { WebAuthNPluginFreeAddAuthenticatorResponse(response) };
 
     tracing::info!("plugin registered successfully");
@@ -120,6 +129,7 @@ pub fn register() -> Result<(), HRESULT> {
 /// Unregister the plugin authenticator from Windows.
 pub fn unregister() -> Result<(), HRESULT> {
     tracing::debug!(clsid = ?PASSKEY_CLSID, "calling WebAuthNPluginRemoveAuthenticator");
+    // SAFETY: PASSKEY_CLSID is a valid GUID.
     let hr = unsafe { WebAuthNPluginRemoveAuthenticator(&PASSKEY_CLSID) };
     if hr.is_err() {
         tracing::error!(?hr, hresult = format!("0x{:08x}", hr.0), "WebAuthNPluginRemoveAuthenticator failed");
@@ -209,6 +219,7 @@ pub fn sync_credentials(
 
     // Clear existing credentials first to avoid NTE_EXISTS on re-sync
     tracing::debug!(clsid = ?PASSKEY_CLSID, "removing all existing credentials before sync");
+    // SAFETY: PASSKEY_CLSID is a valid GUID identifying our authenticator.
     let hr = unsafe { WebAuthNPluginAuthenticatorRemoveAllCredentials(&PASSKEY_CLSID) };
     if hr.is_err() {
         tracing::warn!(?hr, hresult = format!("0x{:08x}", hr.0), "RemoveAllCredentials failed (may be expected on first run)");
@@ -219,6 +230,9 @@ pub fn sync_credentials(
         clsid = ?PASSKEY_CLSID,
         "calling WebAuthNPluginAuthenticatorAddCredentials"
     );
+    // SAFETY: PASSKEY_CLSID is a valid GUID. details is a valid slice of structs whose
+    // pointer fields (rp_id, user_name, etc.) all point into the `owned` Vec which
+    // is still alive. details.len() matches the actual array length.
     let hr = unsafe {
         WebAuthNPluginAuthenticatorAddCredentials(
             &PASSKEY_CLSID,
@@ -314,6 +328,9 @@ fn save_op_sign_key(data: &[u8]) -> windows::core::Result<()> {
     );
     let reg_key_wide = wide_nul(REGISTRY_KEY);
     let reg_value_wide = wide_nul(REGISTRY_VALUE_OP_SIGN_KEY);
+    // SAFETY: All wide string pointers (reg_key_wide, reg_value_wide) are
+    // null-terminated and live for the duration of the registry calls.
+    // hkey is properly opened and closed within this block.
     unsafe {
         let mut hkey = HKEY::default();
         RegCreateKeyExW(
@@ -345,6 +362,9 @@ pub fn load_op_sign_key() -> Option<Vec<u8>> {
     );
     let reg_key_wide = wide_nul(REGISTRY_KEY);
     let reg_value_wide = wide_nul(REGISTRY_VALUE_OP_SIGN_KEY);
+    // SAFETY: All wide string pointers are null-terminated and live for the
+    // duration of the registry calls. We query the size first, allocate a
+    // buffer, then read exactly that many bytes. hkey is closed on all paths.
     unsafe {
         let mut hkey = HKEY::default();
         RegCreateKeyExW(
@@ -400,6 +420,7 @@ pub fn load_op_sign_key() -> Option<Vec<u8>> {
 
 fn delete_registry_key() {
     let reg_key_wide = wide_nul(REGISTRY_KEY);
+    // SAFETY: reg_key_wide is a null-terminated wide string that outlives the call.
     unsafe {
         let _ = RegDeleteTreeW(HKEY_CURRENT_USER, pcwstr(&reg_key_wide));
     }

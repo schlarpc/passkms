@@ -33,6 +33,12 @@ impl PluginAuthenticator {
     }
 }
 
+/// COM interface implementation.
+///
+/// All methods are `unsafe fn` because they are called by the Windows COM runtime
+/// with raw pointers. Each method validates its pointer arguments before use and
+/// copies all data from Windows-allocated structs into owned Rust types immediately
+/// to avoid use-after-free when the decoded requests are freed.
 impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
     unsafe fn MakeCredential(
         &self,

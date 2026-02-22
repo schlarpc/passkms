@@ -44,6 +44,8 @@ impl IClassFactory_Impl for PasskeyClassFactory_Impl {
         riid: *const GUID,
         ppvobject: *mut *mut std::ffi::c_void,
     ) -> windows::core::Result<()> {
+        // SAFETY: riid is provided by the COM runtime and guaranteed non-null per the
+        // IClassFactory::CreateInstance contract.
         let riid_val = unsafe { &*riid };
         tracing::debug!(
             riid = ?riid_val,
@@ -51,6 +53,8 @@ impl IClassFactory_Impl for PasskeyClassFactory_Impl {
             "CreateInstance called"
         );
 
+        // SAFETY: ppvobject is provided by the COM runtime; initializing to null is the
+        // standard pattern before attempting QueryInterface.
         unsafe {
             *ppvobject = std::ptr::null_mut();
         }
@@ -79,6 +83,8 @@ impl IClassFactory_Impl for PasskeyClassFactory_Impl {
             PluginAuthenticator::new(self.runtime.clone(), self.authenticator.clone());
         let unknown: IUnknown = authenticator.into();
 
+        // SAFETY: unknown is a valid IUnknown we just created; riid_val and ppvobject are
+        // valid pointers from the COM runtime. QueryInterface follows COM reference counting.
         let result = unsafe { unknown.query(riid_val, ppvobject).ok() };
         tracing::debug!(success = result.is_ok(), "CreateInstance completed");
         result
