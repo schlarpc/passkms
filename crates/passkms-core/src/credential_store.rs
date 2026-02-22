@@ -35,9 +35,9 @@ const TAG_MANAGED: &str = passkms_tag!("managed");
 /// Errors from credential store operations.
 #[derive(Debug, thiserror::Error)]
 pub enum CredentialStoreError {
-    /// KMS API error.
-    #[error("KMS error: {0}")]
-    Kms(String),
+    /// KMS API error (preserves the underlying error for source chain).
+    #[error("{0}")]
+    Kms(Box<dyn std::error::Error + Send + Sync>),
 
     /// Failed to parse public key from KMS.
     #[error("public key conversion error: {0}")]
@@ -48,9 +48,11 @@ pub enum CredentialStoreError {
     NotFound(String),
 }
 
-impl<E: std::fmt::Display> From<aws_sdk_kms::error::SdkError<E>> for CredentialStoreError {
+impl<E: std::error::Error + Send + Sync + 'static> From<aws_sdk_kms::error::SdkError<E>>
+    for CredentialStoreError
+{
     fn from(e: aws_sdk_kms::error::SdkError<E>) -> Self {
-        Self::Kms(e.to_string())
+        Self::Kms(Box::new(e))
     }
 }
 
