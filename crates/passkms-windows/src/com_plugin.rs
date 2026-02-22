@@ -70,7 +70,10 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         let decoded_ref = &*decoded;
 
-        // Extract fields from decoded request, validating pointers before use.
+        // Copy all data from the decoded request into owned Rust types immediately,
+        // then free the decoded struct. This avoids any risk of use-after-free since
+        // the decoded struct is Windows-allocated memory with no Rust lifetime tracking.
+
         let rp_id = if decoded_ref.pbRpId.is_null() {
             tracing::error!("pbRpId is null in decoded MakeCredential request");
             WebAuthNFreeDecodedMakeCredentialRequest(decoded);
@@ -81,6 +84,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 decoded_ref.cbRpId as usize,
             ))
             .unwrap_or("unknown")
+            .to_string()
         };
 
         let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
@@ -95,7 +99,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             .to_vec()
         };
 
-        // Extract user info
         if decoded_ref.pUserInformation.is_null() {
             tracing::error!("pUserInformation is null in decoded MakeCredential request");
             WebAuthNFreeDecodedMakeCredentialRequest(decoded);
@@ -116,11 +119,19 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         let user_name = wide_ptr_to_string(user_info.pwszName);
         let user_display_name = wide_ptr_to_string(user_info.pwszDisplayName);
 
-        // Check if resident key is requested
         let discoverable = decoded_ref
             .pAuthenticatorOptions
             .as_ref()
             .map_or(false, |opts| opts.lRequireResidentKey > 0);
+
+        let rp_name = if decoded_ref.pRpInformation.is_null() {
+            None
+        } else {
+            wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName)
+        };
+
+        // All data copied — free the decoded request immediately
+        WebAuthNFreeDecodedMakeCredentialRequest(decoded);
 
         tracing::debug!(
             rp_id = %rp_id,
@@ -129,34 +140,13 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             user_name = ?user_name,
             display_name = ?user_display_name,
             discoverable,
-            num_cred_params = decoded_ref.WebAuthNCredentialParameters.cCredentialParameters,
-            num_exclude_list = decoded_ref.CredentialList.cCredentials,
-            has_authenticator_options = decoded_ref.pAuthenticatorOptions.is_null().then_some("no").unwrap_or("yes"),
+            rp_name = ?rp_name,
             "decoded MakeCredential fields"
         );
 
-        if let Some(opts) = decoded_ref.pAuthenticatorOptions.as_ref() {
-            tracing::debug!(
-                up = opts.lUp,
-                uv = opts.lUv,
-                rk = opts.lRequireResidentKey,
-                version = opts.dwVersion,
-                "authenticator options"
-            );
-        }
-
-        let rp_id_owned = rp_id.to_string();
-        let rp_name = if decoded_ref.pRpInformation.is_null() {
-            None
-        } else {
-            wide_ptr_to_string((*decoded_ref.pRpInformation).pwszName)
-        };
-        tracing::debug!(rp_name = ?rp_name, "relying party info");
-
-        // Delegate to passkms-core on the tokio runtime
         let core_request = passkms_core::MakeCredentialRequest {
             client_data_hash,
-            rp_id: rp_id_owned.clone(),
+            rp_id: rp_id.clone(),
             rp_name,
             user_handle,
             user_name: user_name.clone(),
@@ -175,9 +165,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             tracing::debug!("calling authenticator.make_credential");
             authenticator.make_credential(&core_request).await
         });
-
-        // Free the decoded request
-        WebAuthNFreeDecodedMakeCredentialRequest(decoded);
 
         match result {
             Ok(core_response) => {
@@ -218,7 +205,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
                 tracing::info!(
                     credential_id = %hex::encode(&core_response.credential_id),
-                    rp_id = %rp_id_owned,
+                    rp_id = %rp_id,
                     "MakeCredential completed successfully"
                 );
                 HRESULT(0) // S_OK
@@ -274,7 +261,10 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         let decoded_ref = &*decoded;
 
-        // Extract RP ID from raw UTF-8 bytes, validating pointers before use.
+        // Copy all data from the decoded request into owned Rust types immediately,
+        // then free the decoded struct. This avoids any risk of use-after-free since
+        // the decoded struct is Windows-allocated memory with no Rust lifetime tracking.
+
         let rp_id = if decoded_ref.pbRpId.is_null() {
             tracing::error!("pbRpId is null in decoded GetAssertion request");
             WebAuthNFreeDecodedGetAssertionRequest(decoded);
@@ -285,6 +275,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 decoded_ref.cbRpId as usize,
             ))
             .unwrap_or("unknown")
+            .to_string()
         };
 
         let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
@@ -299,7 +290,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             .to_vec()
         };
 
-        // Build allow list from credential list
         let mut allow_list = Vec::new();
         let cred_list_valid = decoded_ref.CredentialList.cCredentials == 0
             || !decoded_ref.CredentialList.ppCredentials.is_null();
@@ -321,38 +311,22 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 } else {
                     std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
                 };
-                tracing::debug!(
-                    index = i,
-                    credential_id = %hex::encode(&id),
-                    transports = cred.dwTransports,
-                    "allow list credential"
-                );
                 allow_list.push(id);
             }
         }
+
+        // All data copied — free the decoded request immediately
+        WebAuthNFreeDecodedGetAssertionRequest(decoded);
 
         tracing::debug!(
             rp_id = %rp_id,
             client_data_hash = %hex::encode(&client_data_hash),
             allow_list_len = allow_list.len(),
-            has_authenticator_options = !decoded_ref.pAuthenticatorOptions.is_null(),
             "decoded GetAssertion fields"
         );
 
-        if let Some(opts) = decoded_ref.pAuthenticatorOptions.as_ref() {
-            tracing::debug!(
-                up = opts.lUp,
-                uv = opts.lUv,
-                rk = opts.lRequireResidentKey,
-                version = opts.dwVersion,
-                "authenticator options"
-            );
-        }
-
-        let rp_id_owned = rp_id.to_string();
-
         let core_request = passkms_core::GetAssertionRequest {
-            rp_id: rp_id_owned.clone(),
+            rp_id: rp_id.clone(),
             client_data_hash,
             allow_list,
         };
@@ -368,8 +342,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             tracing::debug!("calling authenticator.get_assertion");
             authenticator.get_assertion(&core_request).await
         });
-
-        WebAuthNFreeDecodedGetAssertionRequest(decoded);
 
         match result {
             Ok(assertions) => {
@@ -444,7 +416,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
                 tracing::info!(
                     credential_id = %hex::encode(&assertion.credential_id),
-                    rp_id = %rp_id_owned,
+                    rp_id = %rp_id,
                     "GetAssertion completed successfully"
                 );
                 HRESULT(0) // S_OK
