@@ -81,15 +81,10 @@ requested algorithms and return an error if none are supported.
 **Fix:** Check that ES256 (-7) is in the requested algorithm list; return
 `CTAP2_ERR_UNSUPPORTED_ALGORITHM` if not.
 
-### M6. Double `get_signing_key` calls in `get_assertion` authentication flow
-**Category:** Performance
-**Files:** `crates/passkms-core/src/authenticator.rs:250-266,275-276`
+### ~~M6. Double `get_signing_key` calls in `get_assertion` authentication flow~~ RESOLVED
 
-In the non-discoverable flow, the code calls `get_signing_key` once for existence checking
-(discarding the returned `KmsSigner`) then calls it again for signing. This doubles the
-KMS `DescribeKey` API calls per authentication, increasing latency.
-
-**Fix:** Store the `KmsSigner` returned from the existence check and reuse it for signing.
+The `KmsSigner` from the allow-list existence check is now cached and reused for signing,
+eliminating redundant KMS `DescribeKey` API calls.
 
 ### M7. COM plugin code duplication between `MakeCredential` and `GetAssertion`
 **Category:** Code quality / Maintainability
@@ -189,12 +184,10 @@ The test only verifies that `KmsSigner::new` has a specific type signature (`fn(
 -> KmsSigner`). It does not construct a `KmsSigner` or verify any behavior. The test name
 is misleading.
 
-### L8. Unnecessary `clone()` in credential ID UTF-8 conversion
-**Category:** Rust idioms / Performance
-**Files:** `crates/passkms-core/src/authenticator.rs:150,252`
+### ~~L8. Unnecessary `clone()` in credential ID UTF-8 conversion~~ RESOLVED
 
-`String::from_utf8(cred_id_bytes.clone())` allocates when `std::str::from_utf8(cred_id_bytes)`
-would suffice, since the result is only used as `&str`.
+Changed `String::from_utf8(cred_id_bytes.clone())` to `std::str::from_utf8(cred_id_bytes)`
+in both exclude list and allow list paths.
 
 ### L9. Inconsistent `unwrap()` vs `expect()` on Tag builders
 **Category:** Code quality

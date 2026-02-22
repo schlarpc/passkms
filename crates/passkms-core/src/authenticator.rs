@@ -147,13 +147,13 @@ impl Authenticator {
 
         // 1. Check exclude list: if any credential already exists, reject
         for cred_id_bytes in &request.exclude_list {
-            let cred_id = match String::from_utf8(cred_id_bytes.clone()) {
+            let cred_id = match std::str::from_utf8(cred_id_bytes) {
                 Ok(s) => s,
                 Err(_) => continue,
             };
             if self
                 .store
-                .get_signing_key(&request.rp_id, &cred_id)
+                .get_signing_key(&request.rp_id, cred_id)
                 .await
                 .is_ok()
             {
@@ -234,46 +234,52 @@ impl Authenticator {
             ));
         }
 
-        // 1. Find matching credentials
-        let matches = if request.allow_list.is_empty() {
-            // Discoverable flow: enumerate all credentials for this RP
-            let discovered = self.store.discover_credentials(&request.rp_id).await?;
-            if discovered.is_empty() {
-                return Err(AuthenticatorError::NoCredential);
-            }
-            discovered
-                .into_iter()
-                .map(|m| (m.key_id.clone(), m.user_handle.clone()))
-                .collect::<Vec<_>>()
-        } else {
-            // Non-discoverable flow: try each credential in the allow list
-            let mut found = Vec::new();
-            for cred_id_bytes in &request.allow_list {
-                let cred_id = match String::from_utf8(cred_id_bytes.clone()) {
-                    Ok(s) => s,
-                    Err(_) => {
-                        tracing::warn!(
-                            credential_id_hex = %hex::encode(cred_id_bytes),
-                            "skipping non-UTF-8 credential ID in allow list"
-                        );
-                        continue;
-                    }
-                };
-                match self.store.get_signing_key(&request.rp_id, &cred_id).await {
-                    Ok(_) => found.push((cred_id, None)),
-                    Err(_) => continue,
+        // 1. Find matching credentials (with signers for the non-discoverable flow)
+        let matches: Vec<(String, Option<Vec<u8>>, Option<crate::KmsSigner>)> =
+            if request.allow_list.is_empty() {
+                // Discoverable flow: enumerate all credentials for this RP
+                let discovered = self.store.discover_credentials(&request.rp_id).await?;
+                if discovered.is_empty() {
+                    return Err(AuthenticatorError::NoCredential);
                 }
-            }
-            if found.is_empty() {
-                return Err(AuthenticatorError::NoCredential);
-            }
-            found
-        };
+                discovered
+                    .into_iter()
+                    .map(|m| (m.key_id.clone(), m.user_handle.clone(), None))
+                    .collect()
+            } else {
+                // Non-discoverable flow: try each credential in the allow list
+                let mut found = Vec::new();
+                for cred_id_bytes in &request.allow_list {
+                    let cred_id = match std::str::from_utf8(cred_id_bytes) {
+                        Ok(s) => s,
+                        Err(_) => {
+                            tracing::warn!(
+                                credential_id_hex = %hex::encode(cred_id_bytes),
+                                "skipping non-UTF-8 credential ID in allow list"
+                            );
+                            continue;
+                        }
+                    };
+                    match self.store.get_signing_key(&request.rp_id, cred_id).await {
+                        Ok(signer) => {
+                            found.push((cred_id.to_string(), None, Some(signer)));
+                        }
+                        Err(_) => continue,
+                    }
+                }
+                if found.is_empty() {
+                    return Err(AuthenticatorError::NoCredential);
+                }
+                found
+            };
 
         // 2. For each match, build assertion response
         let mut responses = Vec::new();
-        for (key_id, user_handle) in &matches {
-            let signer = self.store.get_signing_key(&request.rp_id, key_id).await?;
+        for (key_id, user_handle, cached_signer) in &matches {
+            let signer = match cached_signer {
+                Some(s) => s.clone(),
+                None => self.store.get_signing_key(&request.rp_id, key_id).await?,
+            };
 
             // Build authenticator data (no attested credential data for assertions)
             let auth_data =
