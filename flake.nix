@@ -184,11 +184,25 @@
           # Cross-compile Windows crate
           windows-build = self.packages.${system}.passkms-windows;
 
-          # Run clippy
+          # Run clippy (native crates)
           clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
           });
+
+          # Run clippy (Windows cross-compiled crate)
+          windows-clippy =
+            let
+              windowsClippyArgs = (commonArgs // {
+                pname = "passkms-windows-clippy";
+                cargoExtraArgs = "-p passkms-windows";
+                nativeBuildInputs = crossBuildInputsFor system;
+                cargoClippyExtraArgs = "-- --deny warnings";
+              }) // msvcEnvFor system;
+            in
+            craneLib.cargoClippy (windowsClippyArgs // {
+              cargoArtifacts = craneLib.buildDepsOnly windowsClippyArgs;
+            });
 
           # Check formatting
           fmt = craneLib.cargoFmt {

@@ -187,13 +187,10 @@ instead of silently becoming `None`.
 
 Added `#[derive(Clone)]` to `Authenticator`.
 
-### L17. No Nix clippy check for Windows cross-compiled crate
-**Category:** Nix / CI
-**Files:** `flake.nix`
+### ~~L17. No Nix clippy check for Windows cross-compiled crate~~ RESOLVED
 
-The Nix `checks` include clippy for the native crates but not for `passkms-windows`. Lint
-issues in the Windows crate would only be caught by the cross-compilation build, not a
-dedicated lint check.
+Added a `windows-clippy` check that runs clippy on the Windows crate via cross-compilation,
+with its own `buildDepsOnly` artifacts cache.
 
 ### ~~L18. `nix-direnv` included as flake input but unused by `.envrc`~~ RESOLVED
 
@@ -208,7 +205,7 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 |----------|-------|----------|-----------|------------|
 | High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
 | Medium | 10 | 9 | 1 | ~~Type safety, spec compliance, performance, docs, error handling, UP flag~~, test infra |
-| Low | 18 | 10 | 8 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
+| Low | 18 | 11 | 7 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
 
 ### Remaining priorities
 
