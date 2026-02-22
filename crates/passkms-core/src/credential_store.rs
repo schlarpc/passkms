@@ -162,13 +162,30 @@ impl CredentialStore {
             })?;
 
         // Create alias for lookup: alias/passkms/{rpIdHash}/{keyId}
+        // If alias creation fails, schedule the orphaned key for deletion to avoid resource leaks.
         let alias_name = alias_name(rp_id, &key_id);
-        self.client
+        if let Err(e) = self
+            .client
             .create_alias()
             .alias_name(&alias_name)
             .target_key_id(&key_id)
             .send()
-            .await?;
+            .await
+        {
+            tracing::error!(
+                key_id = %key_id,
+                error = %e,
+                "failed to create alias, scheduling orphaned key for deletion"
+            );
+            let _ = self
+                .client
+                .schedule_key_deletion()
+                .key_id(&key_id)
+                .pending_window_in_days(7)
+                .send()
+                .await;
+            return Err(e.into());
+        }
 
         tracing::info!(key_id = %key_id, alias = %alias_name, "created credential");
 

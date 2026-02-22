@@ -111,12 +111,11 @@ Credential IDs are the UTF-8 string bytes of KMS key UUIDs. The UUID v4 format w
 distinctive and reveals the authenticator type to relying parties. Most authenticators use
 opaque random binary credential IDs.
 
-### L2. Non-atomic KMS key + alias creation
-**Category:** Robustness
-**Files:** `crates/passkms-core/src/credential_store.rs:143-165`
+### ~~L2. Non-atomic KMS key + alias creation~~ RESOLVED
 
-If the process crashes between key creation and alias creation, an orphaned key exists with no
-alias. Not a security issue but a resource leak in a cost-bearing service.
+If alias creation fails, the orphaned KMS key is now scheduled for deletion. A process
+crash between key and alias creation can still orphan a key, but the programmatic failure
+path is now handled.
 
 ### L3. `list_aliases` fetches all aliases, filters client-side
 **Category:** Performance
@@ -216,7 +215,7 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 |----------|-------|----------|-----------|------------|
 | High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
 | Medium | 10 | 9 | 1 | ~~Type safety, spec compliance, performance, docs, error handling, UP flag~~, test infra |
-| Low | 18 | 7 | 11 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
+| Low | 18 | 8 | 10 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
 
 ### Remaining priorities
 
