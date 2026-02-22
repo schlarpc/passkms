@@ -52,18 +52,11 @@ UP via credential picker) but incorrect for the server/headless use case (`passk
 
 **Fix:** Accept a `user_presence_verified` flag in the request structs rather than hardcoding.
 
-### M3. `CredentialStoreError::Kms` conflates API errors with internal logic errors
-**Category:** Type safety / Error handling
-**Files:** `crates/passkms-core/src/credential_store.rs:39-40,156,188,220`
+### ~~M3. `CredentialStoreError::Kms` conflates API errors with internal logic errors~~ RESOLVED
 
-The `Kms(Box<dyn Error>)` variant is used for both actual AWS SDK errors and internal logic
-errors like `"missing key metadata"` and `"missing public key in response"`. Additionally,
-`get_signing_key` maps all `describe_key` failures (including network errors and permission
-issues) to `CredentialStoreError::NotFound`, which can mislead debugging and cause incorrect
-behavior (e.g., creating a duplicate credential instead of detecting an existing one).
-
-**Fix:** Split `Kms` into `Kms` (actual SDK errors) and `Internal` (missing fields). Distinguish
-"not found" from "API failure" in `get_signing_key`.
+Added `Internal(String)` variant for missing response fields. `get_signing_key` now
+distinguishes `NotFoundException` (mapped to `NotFound`) from other API errors (mapped to
+`Kms`), preventing network/permission errors from being misidentified as missing credentials.
 
 ### ~~M4. Debug logging enabled by default persists PII to disk~~ RESOLVED
 

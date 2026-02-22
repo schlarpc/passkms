@@ -39,6 +39,10 @@ pub enum CredentialStoreError {
     #[error("{0}")]
     Kms(Box<dyn std::error::Error + Send + Sync>),
 
+    /// Internal logic error (unexpected missing fields in KMS responses).
+    #[error("internal error: {0}")]
+    Internal(String),
+
     /// Failed to parse public key from KMS.
     #[error("public key conversion error: {0}")]
     PublicKey(#[from] cose::CoseConversionError),
@@ -153,7 +157,9 @@ impl CredentialStore {
         let key_id = create_resp
             .key_metadata()
             .map(|m| m.key_id().to_string())
-            .ok_or_else(|| CredentialStoreError::Kms("missing key metadata".into()))?;
+            .ok_or_else(|| {
+                CredentialStoreError::Internal("missing key metadata in CreateKey response".into())
+            })?;
 
         // Create alias for lookup: alias/passkms/{rpIdHash}/{keyId}
         let alias_name = alias_name(rp_id, &key_id);
@@ -176,6 +182,8 @@ impl CredentialStore {
         rp_id: &str,
         credential_id: &str,
     ) -> Result<KmsSigner, CredentialStoreError> {
+        use aws_sdk_kms::operation::describe_key::DescribeKeyError;
+
         // Verify the alias exists by trying to describe the key through the alias
         let alias_name = alias_name(rp_id, credential_id);
         let describe_resp = self
@@ -185,13 +193,23 @@ impl CredentialStore {
             .send()
             .await
             .map_err(|e| {
-                CredentialStoreError::NotFound(format!("alias {alias_name} not found: {e}"))
+                if e.as_service_error()
+                    .is_some_and(|se| matches!(se, DescribeKeyError::NotFoundException(_)))
+                {
+                    CredentialStoreError::NotFound(format!("alias {alias_name}"))
+                } else {
+                    CredentialStoreError::Kms(Box::new(e))
+                }
             })?;
 
         let key_id = describe_resp
             .key_metadata()
             .map(|m| m.key_id().to_string())
-            .ok_or_else(|| CredentialStoreError::Kms("missing key metadata".into()))?;
+            .ok_or_else(|| {
+                CredentialStoreError::Internal(
+                    "missing key metadata in DescribeKey response".into(),
+                )
+            })?;
 
         Ok(KmsSigner::new(self.client.clone(), key_id))
     }
@@ -217,7 +235,11 @@ impl CredentialStore {
 
         let der_bytes = resp
             .public_key()
-            .ok_or_else(|| CredentialStoreError::Kms("missing public key in response".into()))?
+            .ok_or_else(|| {
+                CredentialStoreError::Internal(
+                    "missing public key in GetPublicKey response".into(),
+                )
+            })?
             .as_ref();
 
         cose::spki_der_to_cose_key(der_bytes).map_err(CredentialStoreError::from)
