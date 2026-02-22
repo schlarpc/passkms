@@ -96,15 +96,11 @@ validates the hash length at the FFI boundary with `try_from`.
 Updated CLAUDE.md to document all three crates, added `passkms-server` to the project
 structure table and file locations, and added missing Nix outputs.
 
-### M10. Magic version numbers in COM response structs
-**Category:** Hardcoded values
-**Files:** `crates/passkms-windows/src/com_plugin.rs:218,399,407`
+### ~~M10. Magic version numbers in COM response structs~~ RESOLVED
 
-Version numbers like `dwVersion = 8`, `dwVersion = 6`, `dwVersion: 1` are inline magic
-numbers with only comments for context. If WebAuthn struct versions change, grep-searching
-for these integers is error-prone.
-
-**Fix:** Define named constants (e.g., `WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION`).
+Replaced magic version numbers with named constants:
+`WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION`, `WEBAUTHN_ASSERTION_VERSION`,
+`WEBAUTHN_CREDENTIAL_VERSION`.
 
 ---
 

@@ -11,6 +11,12 @@ use windows::core::{implement, HRESULT};
 use crate::bindings::*;
 use crate::util::{wide_nul, wide_ptr_to_string};
 
+/// Version constants for WebAuthn COM structs.
+/// These must match the versions expected by `webauthn.dll`'s encode functions.
+const WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION: u32 = 8;
+const WEBAUTHN_ASSERTION_VERSION: u32 = 6;
+const WEBAUTHN_CREDENTIAL_VERSION: u32 = 1;
+
 /// The plugin authenticator COM object.
 ///
 /// Each instance shares a reference to the tokio runtime (for blocking on async
@@ -240,7 +246,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 // Contoso sample. The encode function rejects older versions.
                 let fmt_wide = wide_nul("none");
                 let mut attestation: WEBAUTHN_CREDENTIAL_ATTESTATION = unsafe { std::mem::zeroed() };
-                attestation.dwVersion = 8; // WEBAUTHN_CREDENTIAL_ATTESTATION_CURRENT_VERSION
+                attestation.dwVersion = WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION;
                 attestation.pwszFormatType = fmt_wide.as_ptr();
                 attestation.cbAuthenticatorData = core_response.auth_data_bytes.len() as u32;
                 attestation.pbAuthenticatorData = core_response.auth_data_bytes.as_ptr() as *mut u8;
@@ -434,14 +440,14 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 let cred_type_wide = wide_nul("public-key");
 
                 let mut webauthn_assertion: WEBAUTHN_ASSERTION = std::mem::zeroed();
-                webauthn_assertion.dwVersion = 6; // WEBAUTHN_ASSERTION_CURRENT_VERSION
+                webauthn_assertion.dwVersion = WEBAUTHN_ASSERTION_VERSION;
                 webauthn_assertion.cbAuthenticatorData = assertion.auth_data_bytes.len() as u32;
                 webauthn_assertion.pbAuthenticatorData =
                     assertion.auth_data_bytes.as_ptr() as *mut u8;
                 webauthn_assertion.cbSignature = assertion.signature.len() as u32;
                 webauthn_assertion.pbSignature = assertion.signature.as_ptr() as *mut u8;
                 webauthn_assertion.Credential = WEBAUTHN_CREDENTIAL {
-                    dwVersion: 1,
+                    dwVersion: WEBAUTHN_CREDENTIAL_VERSION,
                     cbId: assertion.credential_id.len() as u32,
                     pbId: assertion.credential_id.as_ptr(),
                     pwszCredentialType: cred_type_wide.as_ptr(),
