@@ -211,4 +211,3 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 
 1. **H1** -- Implement operation request signature verification
 2. **M1** -- Introduce trait abstraction for KMS to enable unit testing
-3. **M2** -- Accept `user_presence_verified` flag instead of hardcoding UP
