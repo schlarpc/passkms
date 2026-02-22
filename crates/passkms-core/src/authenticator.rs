@@ -112,6 +112,7 @@ pub struct GetAssertionResponse {
 ///
 /// Uses a `CredentialStore` for KMS key management and performs FIDO2
 /// authenticator operations (makeCredential, getAssertion).
+#[derive(Clone)]
 pub struct Authenticator {
     store: CredentialStore,
     /// AAGUID identifying this authenticator type.

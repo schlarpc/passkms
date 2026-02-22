@@ -204,12 +204,9 @@ target. Dependencies are rebuilt from scratch every time, making builds slower t
 Base64 decode failures for `user_handle` now log a warning with the key ID and error
 instead of silently becoming `None`.
 
-### L16. `Authenticator` does not derive `Clone`
-**Category:** API design
-**Files:** `crates/passkms-core/src/authenticator.rs:111-115`
+### ~~L16. `Authenticator` does not derive `Clone`~~ RESOLVED
 
-All fields are `Clone` but the struct does not derive it. The Windows crate wraps it in
-`Arc<Authenticator>` to share it. Adding `Clone` would improve ergonomics.
+Added `#[derive(Clone)]` to `Authenticator`.
 
 ### L17. No Nix clippy check for Windows cross-compiled crate
 **Category:** Nix / CI
