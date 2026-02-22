@@ -45,17 +45,17 @@ impl KmsSigner {
     /// SHA-256 hash (not hex-encoded). KMS returns a DER-encoded ECDSA signature
     /// which is parsed into the RustCrypto `Signature` type.
     pub async fn sign_bytes(&self, msg: &[u8]) -> Result<Signature<NistP256>, signature::Error> {
-        let digest = Sha256::digest(msg);
+        let digest: [u8; 32] = Sha256::digest(msg).into();
         self.sign_prehashed(&digest).await
     }
 
-    /// Sign a prehashed 32-byte digest by calling KMS Sign directly.
+    /// Sign a prehashed 32-byte SHA-256 digest by calling KMS Sign directly.
     ///
     /// The digest must be a raw 32-byte SHA-256 hash, NOT hex-encoded.
     /// This is a common gotcha with the KMS Sign API.
     pub async fn sign_prehashed(
         &self,
-        digest: &[u8],
+        digest: &[u8; 32],
     ) -> Result<Signature<NistP256>, signature::Error> {
         let resp = self
             .client

@@ -54,9 +54,9 @@ async fn test_full_registration_and_authentication_flow() {
     let rp_id = "integration-test.passkms.dev";
 
     // --- Registration ---
-    let client_data_hash = Sha256::digest(b"test-client-data-register").to_vec();
+    let client_data_hash: [u8; 32] = Sha256::digest(b"test-client-data-register").into();
     let request = MakeCredentialRequest {
-        client_data_hash: client_data_hash.clone(),
+        client_data_hash,
         rp_id: rp_id.to_string(),
         rp_name: Some("Integration Test RP".to_string()),
         user_handle: b"test-user-id".to_vec(),
@@ -95,10 +95,10 @@ async fn test_full_registration_and_authentication_flow() {
     }
 
     // --- Authentication ---
-    let auth_client_data_hash = Sha256::digest(b"test-client-data-auth").to_vec();
+    let auth_client_data_hash: [u8; 32] = Sha256::digest(b"test-client-data-auth").into();
     let auth_request = GetAssertionRequest {
         rp_id: rp_id.to_string(),
-        client_data_hash: auth_client_data_hash.clone(),
+        client_data_hash: auth_client_data_hash,
         allow_list: vec![cred_id.as_bytes().to_vec()],
     };
 
@@ -147,7 +147,7 @@ async fn test_full_registration_and_authentication_flow() {
     // --- Discoverable credential flow ---
     let discover_request = GetAssertionRequest {
         rp_id: rp_id.to_string(),
-        client_data_hash: Sha256::digest(b"test-client-data-discover").to_vec(),
+        client_data_hash: Sha256::digest(b"test-client-data-discover").into(),
         allow_list: vec![],
     };
 

@@ -111,11 +111,19 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             WebAuthNFreeDecodedMakeCredentialRequest(decoded);
             return windows::Win32::Foundation::E_INVALIDARG;
         } else {
-            std::slice::from_raw_parts(
+            let slice = std::slice::from_raw_parts(
                 decoded_ref.pbClientDataHash,
                 decoded_ref.cbClientDataHash as usize,
-            )
-            .to_vec()
+            );
+            let Ok(hash) = <[u8; 32]>::try_from(slice) else {
+                tracing::error!(
+                    len = decoded_ref.cbClientDataHash,
+                    "client data hash is not 32 bytes"
+                );
+                WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+                return windows::Win32::Foundation::E_INVALIDARG;
+            };
+            hash
         };
 
         if decoded_ref.pUserInformation.is_null() {
@@ -339,11 +347,19 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             WebAuthNFreeDecodedGetAssertionRequest(decoded);
             return windows::Win32::Foundation::E_INVALIDARG;
         } else {
-            std::slice::from_raw_parts(
+            let slice = std::slice::from_raw_parts(
                 decoded_ref.pbClientDataHash,
                 decoded_ref.cbClientDataHash as usize,
-            )
-            .to_vec()
+            );
+            let Ok(hash) = <[u8; 32]>::try_from(slice) else {
+                tracing::error!(
+                    len = decoded_ref.cbClientDataHash,
+                    "client data hash is not 32 bytes"
+                );
+                WebAuthNFreeDecodedGetAssertionRequest(decoded);
+                return windows::Win32::Foundation::E_INVALIDARG;
+            };
+            hash
         };
 
         let mut allow_list = Vec::new();

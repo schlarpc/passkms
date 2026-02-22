@@ -92,16 +92,11 @@ in unsafe pointer manipulation code increases the risk of divergent bugs.
 **Fix:** Extract shared helpers for `extract_rp_id`, `extract_client_data_hash`,
 `extract_credential_list`.
 
-### M8. `client_data_hash` should be `[u8; 32]` not `Vec<u8>`
-**Category:** Type safety
-**Files:** `crates/passkms-core/src/authenticator.rs:54,89,142,231`
+### ~~M8. `client_data_hash` should be `[u8; 32]` not `Vec<u8>`~~ RESOLVED
 
-`client_data_hash` is `Vec<u8>` with a runtime length check (`!= 32`). A `[u8; 32]` newtype
-would enforce this at compile time. Similarly, `sign_prehashed` accepts `&[u8]` instead of
-`&[u8; 32]` (`kms_signer.rs:56-59`).
-
-**Fix:** Introduce a `ClientDataHash([u8; 32])` newtype; change `sign_prehashed` to accept
-`&[u8; 32]`.
+Changed `client_data_hash` to `[u8; 32]` in both request structs, removing the need for
+runtime length checks. Changed `sign_prehashed` to accept `&[u8; 32]`. The COM plugin now
+validates the hash length at the FFI boundary with `try_from`.
 
 ### M9. CLAUDE.md is outdated -- says "two crates" but there are three
 **Category:** Documentation

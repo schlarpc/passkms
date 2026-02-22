@@ -38,10 +38,6 @@ pub enum AuthenticatorError {
     #[error("no matching credential found")]
     NoCredential,
 
-    /// Invalid client data hash length (expected 32 bytes for SHA-256).
-    #[error("invalid client data hash length: expected 32, got {0}")]
-    InvalidClientDataHash(usize),
-
     /// None of the requested algorithms are supported.
     #[error("unsupported algorithm: only ES256 (-7) is supported")]
     UnsupportedAlgorithm,
@@ -54,8 +50,8 @@ pub enum AuthenticatorError {
 /// Parameters for a makeCredential operation.
 #[derive(Debug)]
 pub struct MakeCredentialRequest {
-    /// Hash of the client data JSON (computed by the client/platform).
-    pub client_data_hash: Vec<u8>,
+    /// SHA-256 hash of the client data JSON (computed by the client/platform).
+    pub client_data_hash: [u8; 32],
     /// The relying party ID (domain).
     pub rp_id: String,
     /// Human-friendly RP name.
@@ -93,8 +89,8 @@ pub struct MakeCredentialResponse {
 pub struct GetAssertionRequest {
     /// The relying party ID (domain).
     pub rp_id: String,
-    /// Hash of the client data JSON (computed by the client/platform).
-    pub client_data_hash: Vec<u8>,
+    /// SHA-256 hash of the client data JSON (computed by the client/platform).
+    pub client_data_hash: [u8; 32],
     /// List of allowed credential IDs (from the RP). If empty, uses discoverable credentials.
     pub allow_list: Vec<Vec<u8>>,
 }
@@ -147,12 +143,6 @@ impl Authenticator {
         request: &MakeCredentialRequest,
     ) -> Result<MakeCredentialResponse, AuthenticatorError> {
         // 0. Validate inputs
-        if request.client_data_hash.len() != 32 {
-            return Err(AuthenticatorError::InvalidClientDataHash(
-                request.client_data_hash.len(),
-            ));
-        }
-
         // Check that ES256 (-7) is in the requested algorithm list (CTAP2 spec).
         // An empty list is treated as "any algorithm acceptable".
         const ES256_COSE_ALG: i64 = -7;
@@ -244,13 +234,6 @@ impl Authenticator {
         &self,
         request: &GetAssertionRequest,
     ) -> Result<Vec<GetAssertionResponse>, AuthenticatorError> {
-        // 0. Validate client data hash length (must be SHA-256 = 32 bytes)
-        if request.client_data_hash.len() != 32 {
-            return Err(AuthenticatorError::InvalidClientDataHash(
-                request.client_data_hash.len(),
-            ));
-        }
-
         // 1. Find matching credentials (with signers for the non-discoverable flow)
         let matches: Vec<(String, Option<Vec<u8>>, Option<crate::KmsSigner>)> =
             if request.allow_list.is_empty() {

@@ -50,7 +50,7 @@ async fn register(authenticator: &Authenticator, rp_id: &str, user_name: &str) {
     println!("Registering credential for RP: {rp_id}, user: {user_name}");
 
     // Simulate client data hash (in real flow, this comes from the browser)
-    let client_data_hash = Sha256::digest(b"fake-client-data-for-testing").to_vec();
+    let client_data_hash: [u8; 32] = Sha256::digest(b"fake-client-data-for-testing").into();
 
     let request = MakeCredentialRequest {
         client_data_hash,
@@ -88,7 +88,7 @@ async fn register(authenticator: &Authenticator, rp_id: &str, user_name: &str) {
 async fn authenticate(authenticator: &Authenticator, rp_id: &str, credential_id: Option<&str>) {
     println!("Authenticating for RP: {rp_id}");
 
-    let client_data_hash = Sha256::digest(b"fake-client-data-for-auth").to_vec();
+    let client_data_hash: [u8; 32] = Sha256::digest(b"fake-client-data-for-auth").into();
 
     let allow_list = match credential_id {
         Some(id) => {
