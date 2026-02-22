@@ -24,7 +24,7 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-kms = "1"
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # WebAuthn/CTAP2 data structures
 passkey-types = "0.5"
