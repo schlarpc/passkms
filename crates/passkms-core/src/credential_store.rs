@@ -23,6 +23,9 @@ macro_rules! passkms_tag {
 /// Prefix for all passkms KMS key tags.
 const TAG_PREFIX: &str = passkms_tag!("");
 
+/// Base prefix for all passkms KMS aliases.
+const ALIAS_BASE_PREFIX: &str = "alias/passkms/";
+
 const TAG_USER_HANDLE: &str = passkms_tag!("user_handle");
 const TAG_DISPLAY_NAME: &str = passkms_tag!("display_name");
 const TAG_USER_NAME: &str = passkms_tag!("user_name");
@@ -151,7 +154,7 @@ impl CredentialStore {
             .ok_or_else(|| CredentialStoreError::Kms("missing key metadata".into()))?;
 
         // Create alias for lookup: alias/passkms/{rpIdHash}/{keyId}
-        let alias_name = self.alias_name(rp_id, &key_id);
+        let alias_name = alias_name(rp_id, &key_id);
         self.client
             .create_alias()
             .alias_name(&alias_name)
@@ -172,7 +175,7 @@ impl CredentialStore {
         credential_id: &str,
     ) -> Result<KmsSigner, CredentialStoreError> {
         // Verify the alias exists by trying to describe the key through the alias
-        let alias_name = self.alias_name(rp_id, credential_id);
+        let alias_name = alias_name(rp_id, credential_id);
         let describe_resp = self
             .client
             .describe_key()
@@ -199,38 +202,8 @@ impl CredentialStore {
         &self,
         rp_id: &str,
     ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
-        let prefix = self.alias_prefix(rp_id);
-        let mut credentials = Vec::new();
-
-        let mut paginator = self.client.list_aliases().into_paginator().send();
-
-        while let Some(page) = paginator.next().await {
-            let page = page?;
-            for alias in page.aliases() {
-                let alias_name = alias.alias_name().unwrap_or_default();
-                if !alias_name.starts_with(&prefix) {
-                    continue;
-                }
-
-                let Some(target_key_id) = alias.target_key_id() else {
-                    continue;
-                };
-
-                // Fetch tags for this key to get metadata
-                match self.get_credential_metadata(target_key_id).await {
-                    Ok(metadata) => credentials.push(metadata),
-                    Err(e) => {
-                        tracing::warn!(
-                            key_id = %target_key_id,
-                            error = %e,
-                            "failed to fetch metadata for credential"
-                        );
-                    }
-                }
-            }
-        }
-
-        Ok(credentials)
+        let prefix = alias_prefix(rp_id);
+        self.list_credentials_by_prefix(&prefix).await
     }
 
     /// Get the COSE-encoded public key for a credential.
@@ -254,12 +227,12 @@ impl CredentialStore {
         rp_id: &str,
         credential_id: &str,
     ) -> Result<(), CredentialStoreError> {
-        let alias_name = self.alias_name(rp_id, credential_id);
+        let alias = alias_name(rp_id, credential_id);
 
         // Delete the alias first
         self.client
             .delete_alias()
-            .alias_name(&alias_name)
+            .alias_name(&alias)
             .send()
             .await?;
 
@@ -282,7 +255,14 @@ impl CredentialStore {
     pub async fn list_all_credentials(
         &self,
     ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
-        let prefix = "alias/passkms/";
+        self.list_credentials_by_prefix(ALIAS_BASE_PREFIX).await
+    }
+
+    /// List credentials matching a given alias prefix.
+    async fn list_credentials_by_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
         let mut credentials = Vec::new();
 
         let mut paginator = self.client.list_aliases().into_paginator().send();
@@ -290,8 +270,8 @@ impl CredentialStore {
         while let Some(page) = paginator.next().await {
             let page = page?;
             for alias in page.aliases() {
-                let alias_name = alias.alias_name().unwrap_or_default();
-                if !alias_name.starts_with(prefix) {
+                let name = alias.alias_name().unwrap_or_default();
+                if !name.starts_with(prefix) {
                     continue;
                 }
 
@@ -362,17 +342,18 @@ impl CredentialStore {
         Ok(metadata)
     }
 
-    /// Compute the alias name for a credential.
-    fn alias_name(&self, rp_id: &str, key_id: &str) -> String {
-        let rp_id_hash = hex::encode(Sha256::digest(rp_id.as_bytes()));
-        format!("alias/passkms/{rp_id_hash}/{key_id}")
-    }
+}
 
-    /// Compute the alias prefix for an RP ID (for discovery).
-    fn alias_prefix(&self, rp_id: &str) -> String {
-        let rp_id_hash = hex::encode(Sha256::digest(rp_id.as_bytes()));
-        format!("alias/passkms/{rp_id_hash}/")
-    }
+/// Compute the alias name for a credential.
+fn alias_name(rp_id: &str, key_id: &str) -> String {
+    let rp_id_hash = hex::encode(Sha256::digest(rp_id.as_bytes()));
+    format!("{ALIAS_BASE_PREFIX}{rp_id_hash}/{key_id}")
+}
+
+/// Compute the alias prefix for an RP ID (for discovery).
+fn alias_prefix(rp_id: &str) -> String {
+    let rp_id_hash = hex::encode(Sha256::digest(rp_id.as_bytes()));
+    format!("{ALIAS_BASE_PREFIX}{rp_id_hash}/")
 }
 
 #[cfg(test)]
@@ -381,32 +362,39 @@ mod tests {
 
     #[test]
     fn alias_name_format() {
-        // Verify the alias naming scheme is deterministic
-        let hash = hex::encode(Sha256::digest(b"example.com"));
-        let expected = format!("alias/passkms/{hash}/test-key-id");
-
-        // We can't construct a CredentialStore without a real client,
-        // but we can test the hash computation directly
-        assert!(expected.starts_with("alias/passkms/"));
-        assert!(expected.contains("test-key-id"));
-        // SHA-256 of "example.com" should be consistent
-        assert_eq!(hash.len(), 64); // hex-encoded SHA-256 is 64 chars
+        let result = alias_name("example.com", "test-key-id");
+        assert!(result.starts_with(ALIAS_BASE_PREFIX));
+        assert!(result.ends_with("/test-key-id"));
+        // SHA-256 hex is 64 chars, plus prefix and key_id
+        let hash_part = result
+            .strip_prefix(ALIAS_BASE_PREFIX)
+            .unwrap()
+            .strip_suffix("/test-key-id")
+            .unwrap();
+        assert_eq!(hash_part.len(), 64);
     }
 
     #[test]
     fn alias_prefix_format() {
-        let hash = hex::encode(Sha256::digest(b"example.com"));
-        let prefix = format!("alias/passkms/{hash}/");
+        let prefix = alias_prefix("example.com");
+        assert!(prefix.starts_with(ALIAS_BASE_PREFIX));
         assert!(prefix.ends_with('/'));
     }
 
     #[test]
-    fn rp_id_hash_is_deterministic() {
-        let hash1 = hex::encode(Sha256::digest(b"example.com"));
-        let hash2 = hex::encode(Sha256::digest(b"example.com"));
-        assert_eq!(hash1, hash2);
+    fn alias_name_starts_with_prefix() {
+        let name = alias_name("example.com", "some-key");
+        let prefix = alias_prefix("example.com");
+        assert!(name.starts_with(&prefix));
+    }
 
-        let different = hex::encode(Sha256::digest(b"other.com"));
-        assert_ne!(hash1, different);
+    #[test]
+    fn rp_id_hash_is_deterministic() {
+        let a = alias_name("example.com", "key1");
+        let b = alias_name("example.com", "key1");
+        assert_eq!(a, b);
+
+        let different = alias_name("other.com", "key1");
+        assert_ne!(a, different);
     }
 }
