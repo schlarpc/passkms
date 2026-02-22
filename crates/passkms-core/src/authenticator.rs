@@ -7,8 +7,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_signature::AsyncSigner;
-use coset::iana;
-use coset::iana::EnumI64;
 use passkey_types::ctap2::{Aaguid, AttestedCredentialData, AuthenticatorData, Flags};
 
 use crate::credential_store::CredentialStore;
@@ -141,7 +139,7 @@ impl Authenticator {
         request: &MakeCredentialRequest,
     ) -> Result<MakeCredentialResponse, AuthenticatorError> {
         // 1. Create the KMS key and alias
-        let (key_id, signer) = self
+        let (key_id, _signer) = self
             .store
             .create_credential(
                 &request.rp_id,
@@ -168,32 +166,18 @@ impl Authenticator {
 
         let auth_data_bytes = auth_data.to_vec();
 
-        // 5. Self-attestation: sign authenticatorData || clientDataHash
-        let mut to_sign = auth_data_bytes.clone();
-        to_sign.extend_from_slice(&request.client_data_hash);
-        let sig = signer.sign_async(&to_sign).await?;
-        let sig_der = sig.to_der();
-
-        // 6. Build packed self-attestation statement
-        //    { "alg": -7 (ES256), "sig": <signature bytes> }
-        let att_stmt = ciborium::Value::Map(vec![
-            (
-                ciborium::Value::Text("alg".to_string()),
-                ciborium::Value::Integer(iana::Algorithm::ES256.to_i64().into()),
-            ),
-            (
-                ciborium::Value::Text("sig".to_string()),
-                ciborium::Value::Bytes(sig_der.as_bytes().to_vec()),
-            ),
-        ]);
-
-        // 7. Build attestation object CBOR
+        // 5. Build "none" attestation object (no attestation statement).
+        //    The Windows plugin platform handles attestation itself, so we
+        //    use the "none" format to avoid a wasted KMS Sign call.
         let attestation_object_value = ciborium::Value::Map(vec![
             (
                 ciborium::Value::Text("fmt".to_string()),
-                ciborium::Value::Text("packed".to_string()),
+                ciborium::Value::Text("none".to_string()),
             ),
-            (ciborium::Value::Text("attStmt".to_string()), att_stmt),
+            (
+                ciborium::Value::Text("attStmt".to_string()),
+                ciborium::Value::Map(vec![]),
+            ),
             (
                 ciborium::Value::Text("authData".to_string()),
                 ciborium::Value::Bytes(auth_data_bytes.clone()),
