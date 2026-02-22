@@ -60,7 +60,7 @@ fn setup_logging() {
     use tracing_subscriber::prelude::*;
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug,aws_config=warn,aws_smithy_runtime=warn,aws_smithy_http_client=warn,aws_sdk_kms=warn,hyper_util=warn,h2=warn"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
     // Write logs to %LOCALAPPDATA%\passkms\passkms.log so they're visible
     // even during COM-activated launches with no console attached.

@@ -65,16 +65,10 @@ behavior (e.g., creating a duplicate credential instead of detecting an existing
 **Fix:** Split `Kms` into `Kms` (actual SDK errors) and `Internal` (missing fields). Distinguish
 "not found" from "API failure" in `get_signing_key`.
 
-### M4. Debug logging enabled by default persists PII to disk
-**Category:** Security / Privacy
-**Files:** `crates/passkms-windows/src/main.rs:63`, `crates/passkms-windows/src/com_plugin.rs:179-180`
+### ~~M4. Debug logging enabled by default persists PII to disk~~ RESOLVED
 
-Default log level is `debug` when `RUST_LOG` is not set. Debug-level tracing includes user
-names, display names, credential IDs, and RP IDs, all written to
-`%LOCALAPPDATA%\passkms\passkms.log`. This persists PII on disk by default.
-
-**Fix:** Change default log level to `info` for production. Keep `debug` available via
-`RUST_LOG`.
+Default log level changed from `debug` to `info`. Debug-level logging (which includes
+user names, display names, etc.) is still available via `RUST_LOG=debug`.
 
 ### M5. No credential algorithm negotiation
 **Category:** Spec compliance
