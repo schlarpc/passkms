@@ -282,8 +282,7 @@ impl Authenticator {
             };
 
             // Build authenticator data (no attested credential data for assertions)
-            let auth_data =
-                AuthenticatorData::new(&request.rp_id, Some(0)).set_flags(Flags::UP);
+            let auth_data = AuthenticatorData::new(&request.rp_id, Some(0)).set_flags(Flags::UP);
 
             let auth_data_bytes = auth_data.to_vec();
 
@@ -304,4 +303,3 @@ impl Authenticator {
         Ok(responses)
     }
 }
-

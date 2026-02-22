@@ -165,9 +165,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         let mut pub_key_cred_params = Vec::new();
         let cred_params = &decoded_ref.WebAuthNCredentialParameters;
-        if cred_params.cCredentialParameters > 0
-            && !cred_params.pCredentialParameters.is_null()
-        {
+        if cred_params.cCredentialParameters > 0 && !cred_params.pCredentialParameters.is_null() {
             for i in 0..cred_params.cCredentialParameters {
                 let param = &*cred_params.pCredentialParameters.add(i as usize);
                 pub_key_cred_params.push(param.lAlg as i64);
@@ -187,7 +185,10 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             if !cred_ptr.is_null() {
                 let cred = &*cred_ptr;
                 if cred.pbId.is_null() && cred.cbId > 0 {
-                    tracing::warn!(index = i, "exclude list credential has null pbId with non-zero cbId, skipping");
+                    tracing::warn!(
+                        index = i,
+                        "exclude list credential has null pbId with non-zero cbId, skipping"
+                    );
                     continue;
                 }
                 let id = if cred.pbId.is_null() {
@@ -245,7 +246,8 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 // Use "none" attestation format and current version, matching the
                 // Contoso sample. The encode function rejects older versions.
                 let fmt_wide = wide_nul("none");
-                let mut attestation: WEBAUTHN_CREDENTIAL_ATTESTATION = unsafe { std::mem::zeroed() };
+                let mut attestation: WEBAUTHN_CREDENTIAL_ATTESTATION =
+                    unsafe { std::mem::zeroed() };
                 attestation.dwVersion = WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION;
                 attestation.pwszFormatType = fmt_wide.as_ptr();
                 attestation.cbAuthenticatorData = core_response.auth_data_bytes.len() as u32;
@@ -381,7 +383,10 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             if !cred_ptr.is_null() {
                 let cred = &*cred_ptr;
                 if cred.pbId.is_null() && cred.cbId > 0 {
-                    tracing::warn!(index = i, "credential has null pbId with non-zero cbId, skipping");
+                    tracing::warn!(
+                        index = i,
+                        "credential has null pbId with non-zero cbId, skipping"
+                    );
                     continue;
                 }
                 let id = if cred.pbId.is_null() {
@@ -535,4 +540,3 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         HRESULT(0)
     }
 }
-

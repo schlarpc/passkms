@@ -128,13 +128,11 @@ alias. Not a security issue but a resource leak in a cost-bearing service.
 The KMS `ListAliases` API does not support server-side prefix filtering. All aliases in the
 account are fetched and filtered client-side. Slow in accounts with many aliases.
 
-### L4. `#![allow(unsafe_code)]` at crate level
-**Category:** Unsafe code
-**Files:** `crates/passkms-windows/src/main.rs:2`
+### L4. `#![allow(unsafe_code)]` at crate level -- NOT FIXED (acceptable)
 
-Blanket allow suppresses warnings for accidentally introduced unsafe code in new modules.
-
-**Fix:** Use function-level `#[allow(unsafe_code)]` only where needed.
+Every module in `passkms-windows` uses `unsafe` for COM/FFI interop. Scoping to individual
+functions would add noise without meaningful safety improvement. The crate-level allow is
+appropriate for a COM interop crate.
 
 ### ~~L5. Integration tests show as "passed" instead of "ignored" when skipped~~ RESOLVED
 
@@ -233,18 +231,14 @@ the flake's input. The flake input and `lib` export are dead code.
 
 ## Summary
 
-| Severity | Count | Key themes |
-|----------|-------|------------|
-| High | 2 | Operation signing verification, silent RP ID substitution |
-| Medium | 10 | Test infrastructure, type safety, spec compliance, performance, docs |
-| Low | 18 | Resource leaks, idioms, error handling, Nix ergonomics, robustness |
+| Severity | Total | Resolved | Remaining | Key themes |
+|----------|-------|----------|-----------|------------|
+| High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
+| Medium | 10 | 8 | 2 | ~~Type safety, spec compliance, performance, docs, error handling~~, test infra, UP flag |
+| Low | 18 | 6 | 12 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
 
-### Top priorities for action
+### Remaining priorities
 
-1. **H2** -- Reject invalid RP IDs rather than silently substituting "unknown"
-2. **H1** -- Implement operation request signature verification
-3. **M1** -- Introduce trait abstraction for KMS to enable unit testing
-4. **M3** -- Distinguish KMS API errors from internal logic errors
-5. **M4** -- Change default log level from `debug` to `info`
-6. **M6** -- Eliminate double `get_signing_key` calls in authentication
-7. **M5** -- Check `pubKeyCredParams` before creating credentials
+1. **H1** -- Implement operation request signature verification
+2. **M1** -- Introduce trait abstraction for KMS to enable unit testing
+3. **M2** -- Accept `user_presence_verified` flag instead of hardcoding UP

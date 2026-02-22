@@ -50,9 +50,7 @@ fn p256_public_key_to_cose_key(public_key: &PublicKey) -> CoseKey {
 ///
 /// Returns `(x, y)` where each is a 32-byte big-endian coordinate.
 #[cfg(test)]
-fn spki_der_to_coordinates(
-    der_bytes: &[u8],
-) -> Result<([u8; 32], [u8; 32]), CoseConversionError> {
+fn spki_der_to_coordinates(der_bytes: &[u8]) -> Result<([u8; 32], [u8; 32]), CoseConversionError> {
     let public_key = PublicKey::from_public_key_der(der_bytes)?;
     let encoded_point = public_key.to_encoded_point(false);
     let x = encoded_point.x().expect("uncompressed point has x");

@@ -168,7 +168,10 @@ fn build_authenticator(runtime: &tokio::runtime::Runtime) -> passkms_core::Authe
 }
 
 /// Register COM class factory and run the message loop.
-fn run_com_server(runtime: Arc<tokio::runtime::Runtime>, authenticator: Arc<passkms_core::Authenticator>) {
+fn run_com_server(
+    runtime: Arc<tokio::runtime::Runtime>,
+    authenticator: Arc<passkms_core::Authenticator>,
+) {
     // SAFETY: COM API calls require unsafe. We ensure correct sequencing:
     // CoInitializeEx before any COM calls, CoRevokeClassObject + CoUninitialize
     // on shutdown. Called on the main thread which owns the message loop.

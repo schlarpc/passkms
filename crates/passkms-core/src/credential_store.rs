@@ -236,9 +236,7 @@ impl CredentialStore {
         let der_bytes = resp
             .public_key()
             .ok_or_else(|| {
-                CredentialStoreError::Internal(
-                    "missing public key in GetPublicKey response".into(),
-                )
+                CredentialStoreError::Internal("missing public key in GetPublicKey response".into())
             })?
             .as_ref();
 
@@ -254,11 +252,7 @@ impl CredentialStore {
         let alias = alias_name(rp_id, credential_id);
 
         // Delete the alias first
-        self.client
-            .delete_alias()
-            .alias_name(&alias)
-            .send()
-            .await?;
+        self.client.delete_alias().alias_name(&alias).send().await?;
 
         // Schedule the key for deletion (minimum 7 days)
         self.client
@@ -374,7 +368,6 @@ impl CredentialStore {
 
         Ok(metadata)
     }
-
 }
 
 /// Compute the alias name for a credential.

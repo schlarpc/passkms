@@ -42,7 +42,11 @@ pub fn is_registered() -> Result<bool, HRESULT> {
         tracing::info!("plugin is not registered (NTE_NOT_FOUND)");
         Ok(false)
     } else {
-        tracing::error!(?hr, hresult = format!("0x{:08x}", hr.0), "failed to query plugin state");
+        tracing::error!(
+            ?hr,
+            hresult = format!("0x{:08x}", hr.0),
+            "failed to query plugin state"
+        );
         Err(hr)
     }
 }
@@ -84,7 +88,11 @@ pub fn register() -> Result<(), HRESULT> {
     let hr = unsafe { WebAuthNPluginAddAuthenticator(&options, &mut response) };
 
     if hr.is_err() {
-        tracing::error!(?hr, hresult = format!("0x{:08x}", hr.0), "WebAuthNPluginAddAuthenticator failed");
+        tracing::error!(
+            ?hr,
+            hresult = format!("0x{:08x}", hr.0),
+            "WebAuthNPluginAddAuthenticator failed"
+        );
         return Err(hr);
     }
     tracing::debug!("WebAuthNPluginAddAuthenticator succeeded");
@@ -131,7 +139,11 @@ pub fn unregister() -> Result<(), HRESULT> {
     // SAFETY: PASSKEY_CLSID is a valid GUID.
     let hr = unsafe { WebAuthNPluginRemoveAuthenticator(&PASSKEY_CLSID) };
     if hr.is_err() {
-        tracing::error!(?hr, hresult = format!("0x{:08x}", hr.0), "WebAuthNPluginRemoveAuthenticator failed");
+        tracing::error!(
+            ?hr,
+            hresult = format!("0x{:08x}", hr.0),
+            "WebAuthNPluginRemoveAuthenticator failed"
+        );
         return Err(hr);
     }
 
@@ -221,7 +233,11 @@ pub fn sync_credentials(
     // SAFETY: PASSKEY_CLSID is a valid GUID identifying our authenticator.
     let hr = unsafe { WebAuthNPluginAuthenticatorRemoveAllCredentials(&PASSKEY_CLSID) };
     if hr.is_err() {
-        tracing::warn!(?hr, hresult = format!("0x{:08x}", hr.0), "RemoveAllCredentials failed (may be expected on first run)");
+        tracing::warn!(
+            ?hr,
+            hresult = format!("0x{:08x}", hr.0),
+            "RemoveAllCredentials failed (may be expected on first run)"
+        );
     }
 
     tracing::debug!(
@@ -241,7 +257,11 @@ pub fn sync_credentials(
     };
 
     if hr.is_err() {
-        tracing::error!(?hr, hresult = format!("0x{:08x}", hr.0), "WebAuthNPluginAuthenticatorAddCredentials failed");
+        tracing::error!(
+            ?hr,
+            hresult = format!("0x{:08x}", hr.0),
+            "WebAuthNPluginAuthenticatorAddCredentials failed"
+        );
         return Err(format!("credential sync failed: {:?}", hr).into());
     }
 
@@ -345,7 +365,13 @@ fn save_op_sign_key(data: &[u8]) -> windows::core::Result<()> {
         )
         .ok()?;
 
-        let result = RegSetValueExW(hkey, pcwstr(&reg_value_wide), Some(0), REG_BINARY, Some(data));
+        let result = RegSetValueExW(
+            hkey,
+            pcwstr(&reg_value_wide),
+            Some(0),
+            REG_BINARY,
+            Some(data),
+        );
         let _ = RegCloseKey(hkey);
         result.ok()
     }
@@ -412,7 +438,10 @@ pub fn load_op_sign_key() -> Option<Vec<u8>> {
 
         let _ = RegCloseKey(hkey);
         buf.truncate(size as usize);
-        tracing::debug!(key_len = buf.len(), "loaded operation signing key from registry");
+        tracing::debug!(
+            key_len = buf.len(),
+            "loaded operation signing key from registry"
+        );
         Some(buf)
     }
 }
