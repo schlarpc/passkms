@@ -181,6 +181,9 @@
           # Build the crate as part of checks
           build = self.packages.${system}.default;
 
+          # Cross-compile Windows crate
+          windows-build = self.packages.${system}.passkms-windows;
+
           # Run clippy
           clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
