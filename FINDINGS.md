@@ -164,12 +164,9 @@ is misleading.
 Changed `String::from_utf8(cred_id_bytes.clone())` to `std::str::from_utf8(cred_id_bytes)`
 in both exclude list and allow list paths.
 
-### L9. Inconsistent `unwrap()` vs `expect()` on Tag builders
-**Category:** Code quality
-**Files:** `crates/passkms-core/src/credential_store.rs:109,114,119,128,138`
+### ~~L9. Inconsistent `unwrap()` vs `expect()` on Tag builders~~ RESOLVED
 
-Lines 109/114/119 use `.expect("tag_key and tag_value both set")` while lines 128/138 use
-bare `.unwrap()`. All should use `.expect()` with a consistent message.
+All Tag builder `.unwrap()` calls replaced with `.expect("tag_key and tag_value both set")`.
 
 ### L10. `CredentialMetadata` returned with all-`None` fields treated as valid
 **Category:** Type safety

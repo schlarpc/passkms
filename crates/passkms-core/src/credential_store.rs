@@ -129,7 +129,7 @@ impl CredentialStore {
                     .tag_key(TAG_USER_NAME)
                     .tag_value(name)
                     .build()
-                    .unwrap(),
+                    .expect("tag_key and tag_value both set"),
             );
         }
 
@@ -139,7 +139,7 @@ impl CredentialStore {
                     .tag_key(TAG_DISPLAY_NAME)
                     .tag_value(name)
                     .build()
-                    .unwrap(),
+                    .expect("tag_key and tag_value both set"),
             );
         }
 
