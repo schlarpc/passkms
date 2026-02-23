@@ -68,7 +68,7 @@ impl KmsSigner {
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, "KMS Sign failed");
-                signature::Error::new()
+                signature::Error::from_source(e)
             })?;
 
         let sig_der = resp
@@ -81,7 +81,7 @@ impl KmsSigner {
 
         Signature::<NistP256>::from_der(sig_der).map_err(|e| {
             tracing::error!(error = %e, "failed to parse DER signature from KMS");
-            signature::Error::new()
+            signature::Error::from_source(e)
         })
     }
 }
