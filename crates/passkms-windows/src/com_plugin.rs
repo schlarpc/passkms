@@ -10,6 +10,7 @@ use std::time::Duration;
 use windows::core::{implement, HRESULT};
 
 use crate::bindings::*;
+use crate::com_factory::PASSKEY_CLSID;
 use crate::util::{len_as_u32, wide_nul, wide_ptr_to_string};
 
 /// Timeout for KMS operations via the COM plugin.
@@ -301,8 +302,8 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         let core_request = passkms_core::MakeCredentialRequest {
             client_data_hash,
             rp_id: rp_id.clone(),
-            rp_name,
-            user_handle,
+            rp_name: rp_name.clone(),
+            user_handle: user_handle.clone(),
             user_name: user_name.clone(),
             user_display_name: user_display_name.clone(),
             user_presence: true, // Platform handles UP via credential picker
@@ -370,6 +371,34 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                     rp_id = %rp_id,
                     "MakeCredential completed successfully"
                 );
+
+                // Notify Windows about the new credential so it appears in the
+                // passkey picker immediately without requiring a full sync or
+                // service restart.
+                let cred_rp_id = wide_nul(&rp_id);
+                let cred_rp_name = wide_nul(rp_name.as_deref().unwrap_or(&rp_id));
+                let cred_user_name = wide_nul(user_name.as_deref().unwrap_or(""));
+                let cred_display_name = wide_nul(user_display_name.as_deref().unwrap_or(""));
+                let detail = WEBAUTHN_PLUGIN_CREDENTIAL_DETAILS {
+                    cbCredentialId: len_as_u32(core_response.credential_id.len()),
+                    pbCredentialId: core_response.credential_id.as_ptr(),
+                    pwszRpId: cred_rp_id.as_ptr(),
+                    pwszRpName: cred_rp_name.as_ptr(),
+                    cbUserId: len_as_u32(user_handle.len()),
+                    pbUserId: user_handle.as_ptr(),
+                    pwszUserName: cred_user_name.as_ptr(),
+                    pwszUserDisplayName: cred_display_name.as_ptr(),
+                };
+                let hr_add = WebAuthNPluginAuthenticatorAddCredentials(&PASSKEY_CLSID, 1, &detail);
+                if hr_add.is_err() {
+                    tracing::warn!(
+                        ?hr_add,
+                        hresult = format!("0x{:08x}", hr_add.0),
+                        "failed to notify Windows about new credential \
+                         (will appear after next sync)"
+                    );
+                }
+
                 HRESULT(0) // S_OK
             }
             Err(e) => {
