@@ -195,11 +195,10 @@ pub fn sync_credentials(
         .iter()
         .enumerate()
         .map(|(i, cred)| {
-            let rp_id_str = cred.rp_id.as_deref().unwrap_or("unknown");
             tracing::debug!(
                 index = i,
                 key_id = %cred.key_id,
-                rp_id = %rp_id_str,
+                rp_id = %cred.rp_id,
                 user_name = ?cred.user_name,
                 display_name = ?cred.display_name,
                 has_user_handle = cred.user_handle.is_some(),
@@ -208,8 +207,8 @@ pub fn sync_credentials(
             CredData {
                 key_id_bytes: cred.key_id.as_bytes().to_vec(),
                 user_handle: cred.user_handle.clone().unwrap_or_default(),
-                rp_id: wide_nul(rp_id_str),
-                rp_name: wide_nul(rp_id_str),
+                rp_id: wide_nul(&cred.rp_id),
+                rp_name: wide_nul(&cred.rp_id),
                 user_name: wide_nul(cred.user_name.as_deref().unwrap_or("")),
                 display_name: wide_nul(cred.display_name.as_deref().unwrap_or("")),
             }

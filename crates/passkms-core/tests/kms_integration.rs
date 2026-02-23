@@ -220,7 +220,7 @@ async fn test_credential_metadata_stored_in_tags() {
     let our_cred = credentials.iter().find(|c| c.key_id == key_id).unwrap();
     assert_eq!(our_cred.user_name.as_deref(), Some("alice"));
     assert_eq!(our_cred.display_name.as_deref(), Some("Alice Smith"));
-    assert_eq!(our_cred.rp_id.as_deref(), Some(rp_id));
+    assert_eq!(our_cred.rp_id, rp_id);
     assert_eq!(
         our_cred.user_handle.as_deref(),
         Some(b"user-handle-123".as_slice())

@@ -151,9 +151,7 @@ async fn list_credentials(authenticator: &Authenticator, rp_id: &str) {
                     if let Some(ref name) = cred.display_name {
                         println!("    Display name: {name}");
                     }
-                    if let Some(ref rp) = cred.rp_id {
-                        println!("    RP ID: {rp}");
-                    }
+                    println!("    RP ID: {}", cred.rp_id);
                 }
             }
         }

@@ -425,7 +425,7 @@ mod tests {
                     user_handle: Some(c.user_handle.clone()),
                     display_name: c.display_name.clone(),
                     user_name: c.user_name.clone(),
-                    rp_id: Some(c.rp_id.clone()),
+                    rp_id: c.rp_id.clone(),
                 })
                 .collect())
         }
@@ -470,7 +470,7 @@ mod tests {
                     user_handle: Some(c.user_handle.clone()),
                     display_name: c.display_name.clone(),
                     user_name: c.user_name.clone(),
-                    rp_id: Some(c.rp_id.clone()),
+                    rp_id: c.rp_id.clone(),
                 })
                 .collect())
         }

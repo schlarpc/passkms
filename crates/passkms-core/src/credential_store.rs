@@ -125,7 +125,7 @@ pub struct CredentialMetadata {
     /// The user name.
     pub user_name: Option<String>,
     /// The RP ID this credential is scoped to.
-    pub rp_id: Option<String>,
+    pub rp_id: String,
 }
 
 /// Trait abstracting credential storage operations.
@@ -461,14 +461,10 @@ impl CredentialStore {
             .send()
             .await?;
 
-        let mut metadata = CredentialMetadata {
-            key_id: CredentialId::new(key_id.to_string()),
-            user_handle: None,
-            display_name: None,
-            user_name: None,
-            rp_id: None,
-        };
-
+        let mut user_handle = None;
+        let mut display_name = None;
+        let mut user_name = None;
+        let mut rp_id = None;
         let mut is_managed = false;
 
         for tag in resp.tags() {
@@ -484,7 +480,7 @@ impl CredentialStore {
                 k if k == TAG_USER_HANDLE => {
                     use data_encoding::BASE64URL_NOPAD;
                     match BASE64URL_NOPAD.decode(value.as_bytes()) {
-                        Ok(decoded) => metadata.user_handle = Some(decoded),
+                        Ok(decoded) => user_handle = Some(decoded),
                         Err(e) => {
                             tracing::warn!(
                                 key_id = %key_id,
@@ -495,13 +491,13 @@ impl CredentialStore {
                     }
                 }
                 k if k == TAG_DISPLAY_NAME => {
-                    metadata.display_name = Some(value.to_string());
+                    display_name = Some(value.to_string());
                 }
                 k if k == TAG_USER_NAME => {
-                    metadata.user_name = Some(value.to_string());
+                    user_name = Some(value.to_string());
                 }
                 k if k == TAG_RP_ID => {
-                    metadata.rp_id = Some(value.to_string());
+                    rp_id = Some(value.to_string());
                 }
                 _ => {}
             }
@@ -513,7 +509,17 @@ impl CredentialStore {
             )));
         }
 
-        Ok(metadata)
+        let rp_id = rp_id.ok_or_else(|| {
+            CredentialStoreError::Internal(format!("key {key_id} is missing rp_id tag"))
+        })?;
+
+        Ok(CredentialMetadata {
+            key_id: CredentialId::new(key_id.to_string()),
+            user_handle,
+            display_name,
+            user_name,
+            rp_id,
+        })
     }
 }
 
