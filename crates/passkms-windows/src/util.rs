@@ -21,8 +21,9 @@ pub fn wide_nul(s: &str) -> Vec<u16> {
 
 /// Convert a wide (UTF-16) null-terminated pointer to an `Option<String>`.
 ///
-/// Returns `None` if the pointer is null or the string is not valid UTF-16.
-/// Scans up to [`MAX_WIDE_STRING_LEN`] code units for the null terminator.
+/// Returns `None` if the pointer is null, the string is not valid UTF-16, or
+/// the string exceeds [`MAX_WIDE_STRING_LEN`] code units (indicating malformed
+/// input rather than a legitimate WebAuthn name).
 ///
 /// # Safety
 ///
@@ -37,7 +38,11 @@ pub unsafe fn wide_ptr_to_string(ptr: *const u16) -> Option<String> {
         len += 1;
     }
     if len == MAX_WIDE_STRING_LEN {
-        tracing::warn!("wide string exceeded maximum scan length, truncating");
+        tracing::warn!(
+            max_len = MAX_WIDE_STRING_LEN,
+            "wide string exceeded maximum scan length, rejecting"
+        );
+        return None;
     }
     let slice = std::slice::from_raw_parts(ptr, len);
     String::from_utf16(slice).ok()
