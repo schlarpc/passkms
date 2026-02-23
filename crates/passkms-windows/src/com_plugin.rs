@@ -23,6 +23,7 @@ const MAX_FIELD_BYTES: u32 = 1024 * 1024;
 
 /// Version constants for WebAuthn COM structs.
 /// These must match the versions expected by `webauthn.dll`'s encode functions.
+/// Values correspond to the Windows 11 24H2 SDK (WebAuthn API v8).
 const WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION: u32 = 8;
 const WEBAUTHN_ASSERTION_VERSION: u32 = 6;
 const WEBAUTHN_CREDENTIAL_VERSION: u32 = 1;
@@ -103,7 +104,11 @@ unsafe fn extract_credential_list(
         let id = if cred.pbId.is_null() {
             Vec::new()
         } else if cred.cbId > MAX_FIELD_BYTES {
-            tracing::warn!(index = i, len = cred.cbId, "credential ID length exceeds maximum, skipping");
+            tracing::warn!(
+                index = i,
+                len = cred.cbId,
+                "credential ID length exceeds maximum, skipping"
+            );
             continue;
         } else {
             std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
@@ -111,6 +116,21 @@ unsafe fn extract_credential_list(
         result.push(id);
     }
     Ok(result)
+}
+
+/// NTE_NOT_FOUND: The specified item was not found. (0x80090011)
+const NTE_NOT_FOUND: HRESULT = HRESULT(0x80090011_u32.cast_signed());
+
+/// NTE_EXISTS: The specified item already exists. (0x8009000F)
+const NTE_EXISTS: HRESULT = HRESULT(0x8009000F_u32.cast_signed());
+
+/// Map an `AuthenticatorError` to a more specific HRESULT where possible.
+fn authenticator_error_to_hresult(e: &passkms_core::AuthenticatorError) -> HRESULT {
+    match e {
+        passkms_core::AuthenticatorError::NoCredential => NTE_NOT_FOUND,
+        passkms_core::AuthenticatorError::CredentialExcluded => NTE_EXISTS,
+        _ => windows::Win32::Foundation::E_FAIL,
+    }
 }
 
 /// The plugin authenticator COM object.
@@ -354,7 +374,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             }
             Err(e) => {
                 tracing::error!(error = %e, "MakeCredential failed");
-                windows::Win32::Foundation::E_FAIL
+                authenticator_error_to_hresult(&e)
             }
         }
     }
@@ -559,7 +579,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             }
             Err(e) => {
                 tracing::error!(error = %e, "GetAssertion failed");
-                windows::Win32::Foundation::E_FAIL
+                authenticator_error_to_hresult(&e)
             }
         }
     }
