@@ -12,7 +12,7 @@ Previously resolved findings have been removed. Items below are from the current
 
 ### H1. Operation signing key is saved but never verified
 **Category:** Security
-**Files:** `crates/passkms-windows/src/registration.rs:356`, `crates/passkms-windows/src/com_plugin.rs:62-68,273-279`
+**Files:** `crates/passkms-windows/src/registration.rs:384`, `crates/passkms-windows/src/com_plugin.rs:79,331`
 
 The `OpSignPubKey` from `WebAuthNPluginAddAuthenticator` is saved to the registry.
 `load_op_sign_key()` exists but is marked `#[allow(dead_code)]`. Neither `MakeCredential` nor
@@ -22,82 +22,36 @@ can forge WebAuthn requests to the plugin.
 **Fix:** Implement signature verification using the stored public key before processing
 requests.
 
-### ~~H2. Invalid UTF-8 RP ID silently becomes "unknown"~~ RESOLVED
-
-Both `MakeCredential` and `GetAssertion` now return `E_INVALIDARG` for non-UTF-8 RP IDs
-instead of silently substituting `"unknown"`.
-
 ---
 
 ## Medium
 
 ### M1. No mock infrastructure for AWS KMS -- core logic untestable offline
 **Category:** Testing / Architecture
-**Files:** `crates/passkms-core/src/credential_store.rs:79-87`, `crates/passkms-core/src/authenticator.rs:137,226`
+**Files:** `crates/passkms-core/src/credential_store.rs:79-87`, `crates/passkms-core/src/authenticator.rs:132-140`
 
 `CredentialStore` holds a concrete `aws_sdk_kms::Client` with no trait abstraction.
 `make_credential()` and `get_assertion()` -- the two most critical functions -- have zero unit
 tests. The only test coverage comes from opt-in integration tests requiring real AWS credentials.
-`delete_credential()` has zero test coverage anywhere.
+`delete_credential()` and `list_all_credentials()` have zero test coverage anywhere.
+
+Effective automated test coverage: 8 unit tests run during `nix flake check`. Integration
+tests are `#[ignore]` and never run in CI. Error path test coverage is ~8% (1 of 13 error
+variants tested).
 
 **Fix:** Introduce a `CredentialStorage` trait to decouple from the concrete KMS client,
 enabling mock-based unit testing of `Authenticator`, `CredentialStore`, and `KmsSigner`.
 
-### ~~M2. UP flag always asserted without actual user presence check~~ RESOLVED
+### M6. Non-atomic credential sync creates a gap with no credentials
+**Category:** Correctness
+**Files:** `crates/passkms-windows/src/registration.rs:233-258`
 
-Both request structs now accept a `user_presence` boolean. The UP flag is only set when
-the caller indicates user presence was verified. The Windows COM plugin sets it to `true`
-(platform handles UP), while the headless server sets it to `false`.
+The `sync_credentials` function calls `RemoveAllCredentials` then `AddCredentials`. Between
+these two calls, a concurrent WebAuthn operation would find zero credentials. This is a
+transient window of inconsistency.
 
-### ~~M3. `CredentialStoreError::Kms` conflates API errors with internal logic errors~~ RESOLVED
-
-Added `Internal(String)` variant for missing response fields. `get_signing_key` now
-distinguishes `NotFoundException` (mapped to `NotFound`) from other API errors (mapped to
-`Kms`), preventing network/permission errors from being misidentified as missing credentials.
-
-### ~~M4. Debug logging enabled by default persists PII to disk~~ RESOLVED
-
-Default log level changed from `debug` to `info`. Debug-level logging (which includes
-user names, display names, etc.) is still available via `RUST_LOG=debug`.
-
-### ~~M5. No credential algorithm negotiation~~ RESOLVED
-
-`MakeCredentialRequest` now includes `pub_key_cred_params` and `make_credential` validates
-that ES256 (-7) is in the requested algorithm list, returning `UnsupportedAlgorithm` if not.
-The COM plugin extracts the algorithm list from the decoded CTAP2 request.
-
-### ~~M6. Double `get_signing_key` calls in `get_assertion` authentication flow~~ RESOLVED
-
-The `KmsSigner` from the allow-list existence check is now cached and reused for signing,
-eliminating redundant KMS `DescribeKey` API calls.
-
-### M7. COM plugin code duplication between `MakeCredential` and `GetAssertion`
-**Category:** Code quality / Maintainability
-**Files:** `crates/passkms-windows/src/com_plugin.rs:43-252,254-456`
-
-Both methods share nearly identical patterns for null-checking pointers, extracting RP IDs,
-client data hashes, credential lists, decoding CBOR, and encoding responses. This duplication
-in unsafe pointer manipulation code increases the risk of divergent bugs.
-
-**Fix:** Extract shared helpers for `extract_rp_id`, `extract_client_data_hash`,
-`extract_credential_list`.
-
-### ~~M8. `client_data_hash` should be `[u8; 32]` not `Vec<u8>`~~ RESOLVED
-
-Changed `client_data_hash` to `[u8; 32]` in both request structs, removing the need for
-runtime length checks. Changed `sign_prehashed` to accept `&[u8; 32]`. The COM plugin now
-validates the hash length at the FFI boundary with `try_from`.
-
-### ~~M9. CLAUDE.md is outdated -- says "two crates" but there are three~~ RESOLVED
-
-Updated CLAUDE.md to document all three crates, added `passkms-server` to the project
-structure table and file locations, and added missing Nix outputs.
-
-### ~~M10. Magic version numbers in COM response structs~~ RESOLVED
-
-Replaced magic version numbers with named constants:
-`WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION`, `WEBAUTHN_ASSERTION_VERSION`,
-`WEBAUTHN_CREDENTIAL_VERSION`.
+**Fix:** Investigate whether the plugin API supports an atomic replace, or minimize the
+window by preparing data before removing.
 
 ---
 
@@ -111,91 +65,69 @@ Credential IDs are the UTF-8 string bytes of KMS key UUIDs. The UUID v4 format w
 distinctive and reveals the authenticator type to relying parties. Most authenticators use
 opaque random binary credential IDs.
 
-### ~~L2. Non-atomic KMS key + alias creation~~ RESOLVED
-
-If alias creation fails, the orphaned KMS key is now scheduled for deletion. A process
-crash between key and alias creation can still orphan a key, but the programmatic failure
-path is now handled.
-
-### L3. `list_aliases` fetches all aliases, filters client-side
+### L2. `list_aliases` fetches all aliases, filters client-side
 **Category:** Performance
-**Files:** `crates/passkms-core/src/credential_store.rs:270`
+**Files:** `crates/passkms-core/src/credential_store.rs:297-331`
 
 The KMS `ListAliases` API does not support server-side prefix filtering. All aliases in the
-account are fetched and filtered client-side. Slow in accounts with many aliases.
+account are fetched and filtered client-side. Slow in accounts with many aliases. Additionally,
+`get_credential_metadata` is called sequentially for each discovered alias, making N+1 API
+calls. Concurrent fetching with `FuturesUnordered` would improve latency for larger credential
+sets.
 
-### L4. `#![allow(unsafe_code)]` at crate level -- NOT FIXED (acceptable)
+### L3. `#![allow(unsafe_code)]` at crate level -- NOT FIXED (acceptable)
 
 Every module in `passkms-windows` uses `unsafe` for COM/FFI interop. Scoping to individual
 functions would add noise without meaningful safety improvement. The crate-level allow is
 appropriate for a COM interop crate.
 
-### ~~L5. Integration tests show as "passed" instead of "ignored" when skipped~~ RESOLVED
+### L5. `CredentialStoreError::Kms` type-erases all KMS errors
+**Category:** Error handling
+**Files:** `crates/passkms-core/src/credential_store.rs:39-40,55-61`
 
-Replaced `should_run()` early-return pattern with `#[ignore]` attribute. Tests now correctly
-report as "ignored" and can be run with `--run-ignored`.
+The blanket `From<SdkError<E>>` routes all KMS errors into a single `Kms(Box<dyn Error>)`
+variant. Callers cannot programmatically distinguish throttling from access denied from key
+not found (except the one manual `NotFoundException` intercept in `get_signing_key`).
 
-### ~~L6. Integration tests leak KMS resources on assertion failure~~ RESOLVED
+### L6. `windows-interface` version skew with `windows` crate -- NOT FIXABLE
+**Category:** Dependencies
+**Files:** `Cargo.toml:73`
 
-Added a `CleanupGuard` struct with a `Drop` impl that runs `cleanup_key` even if
-assertions panic.
+`windows-interface` is at 0.59 while `windows` and `windows-core` are at 0.62. Investigation
+confirmed 0.59.3 is the latest published version of `windows-interface`; the Microsoft
+`windows-*` ecosystem did not publish a 0.62 release for this crate. Not fixable by bumping.
 
-### ~~L7. `kms_signer_stores_key_id` test is tautological~~ RESOLVED
+### L10. No MSRV specified in Cargo.toml
+**Category:** Rust conventions
+**Files:** `Cargo.toml`
 
-Removed the misleading test that only checked a type signature.
+`rust-version` is not set in `workspace.package`. While acceptable when Nix manages the
+toolchain, specifying MSRV is conventional for Rust projects and helps downstream consumers.
 
-### ~~L8. Unnecessary `clone()` in credential ID UTF-8 conversion~~ RESOLVED
+### L11. `wide_ptr_to_string` truncation is silent to callers
+**Category:** Robustness
+**Files:** `crates/passkms-windows/src/util.rs:20-33`
 
-Changed `String::from_utf8(cred_id_bytes.clone())` to `std::str::from_utf8(cred_id_bytes)`
-in both exclude list and allow list paths.
+When a wide string exceeds `MAX_WIDE_STRING_LEN` (4096), it is silently truncated with a
+`tracing::warn` log. The caller receives `Some(truncated_string)` with no indication the
+value was truncated. For WebAuthn RP/user names this limit is generous, but the function's
+contract is unclear.
 
-### ~~L9. Inconsistent `unwrap()` vs `expect()` on Tag builders~~ RESOLVED
+### L13. No `nix run` app output or rustdoc derivation
+**Category:** Nix / Ergonomics
+**Files:** `flake.nix`
 
-All Tag builder `.unwrap()` calls replaced with `.expect("tag_key and tag_value both set")`.
+The flake does not define `apps` outputs, so `nix run .#passkms-server` does not work via
+the explicit apps mechanism. There is also no documentation build derivation for verifying
+doc comments or publishing API docs.
 
-### ~~L10. `CredentialMetadata` returned with all-`None` fields treated as valid~~ RESOLVED
+### L14. `const_cast` pattern in COM response building
+**Category:** Unsafe / Code quality
+**Files:** `crates/passkms-windows/src/com_plugin.rs:273,275,484,486,498`
 
-`get_credential_metadata` now checks for the `TAG_MANAGED` tag and returns `NotFound` for
-keys that are not passkms-managed credentials.
-
-### ~~L11. `passkms-server` `list_credentials` creates redundant AWS client~~ RESOLVED
-
-`list_credentials` now uses the passed `authenticator.store()` instead of creating
-a redundant AWS client.
-
-### ~~L12. No timeout on KMS operations in COM plugin~~ RESOLVED
-
-Both `MakeCredential` and `GetAssertion` now wrap their KMS operations in a 30-second
-`tokio::time::timeout`. If KMS is unreachable, the COM method returns `E_FAIL` instead
-of blocking indefinitely.
-
-### ~~L13. `.envrc` watches non-existent `rust-toolchain.toml`~~ RESOLVED
-
-Removed `rust-toolchain.toml` from the `watch_file` directive.
-
-### ~~L14. No `buildDepsOnly` cache for Windows cross-compilation~~ RESOLVED
-
-Added a `buildDepsOnly` derivation for the Windows cross-compilation target, passed as
-`cargoArtifacts` to the `passkms-windows` build. Dependencies are now cached separately.
-
-### ~~L15. Silent base64 decode failure for `user_handle` in metadata~~ RESOLVED
-
-Base64 decode failures for `user_handle` now log a warning with the key ID and error
-instead of silently becoming `None`.
-
-### ~~L16. `Authenticator` does not derive `Clone`~~ RESOLVED
-
-Added `#[derive(Clone)]` to `Authenticator`.
-
-### ~~L17. No Nix clippy check for Windows cross-compiled crate~~ RESOLVED
-
-Added a `windows-clippy` check that runs clippy on the Windows crate via cross-compilation,
-with its own `buildDepsOnly` artifacts cache.
-
-### ~~L18. `nix-direnv` included as flake input but unused by `.envrc`~~ RESOLVED
-
-Removed the unused `nix-direnv` flake input, devShell entry, and `lib` export.
-The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
+Immutable `Vec<u8>` buffers are cast from `*const u8` to `*mut u8` via `as_ptr() as *mut u8`
+to satisfy Windows struct field types. While the Windows API should not mutate these buffers,
+the cast technically permits it. This is a pragmatic compromise given the FFI binding types.
 
 ---
 
@@ -203,11 +135,27 @@ The `.envrc` self-bootstraps `nix-direnv` independently from nixpkgs.
 
 | Severity | Total | Resolved | Remaining | Key themes |
 |----------|-------|----------|-----------|------------|
-| High | 2 | 1 | 1 | ~~Silent RP ID substitution~~, operation signing verification |
-| Medium | 10 | 9 | 1 | ~~Type safety, spec compliance, performance, docs, error handling, UP flag~~, test infra |
-| Low | 18 | 11 | 7 | ~~Idioms, error handling, Nix ergonomics~~, resource leaks, robustness |
+| High | 3 | 2 | 1 | Request signing not verified |
+| Medium | 6 | 4 | 2 | Test infra, non-atomic sync |
+| Low | 15 | 6 | 9 | Privacy, performance, conventions |
+
+### Resolved items
+
+- **H2** -- Removed dead `discoverable` field; all credentials are always discoverable
+- **H3** -- Replaced README template with actual project documentation
+- **M2** -- Added warn-level logging for swallowed KMS errors in allow-list flow
+- **M3** -- Added CTAP2_CBOR request type validation in COM plugin
+- **M4** -- Extracted shared `extract_rp_id`, `extract_client_data_hash`, `extract_credential_list` helpers
+- **M5** -- Introduced `CredentialId(String)` newtype with validation on construction
+- **L4** -- Replaced all `len() as u32` casts with `len_as_u32()` using `u32::try_from`
+- **L7** -- Extracted `SIGN_COUNT` and `KEY_DELETION_PENDING_DAYS` named constants
+- **L8** -- Replaced `expect()` in `cose.rs` with `MissingCoordinate` error variant
+- **L9** -- Added `cargo audit` check to Nix flake using RustSec advisory-db
+- **L12** -- Extracted shared `msvcFlags` binding in flake.nix
+- **L15** -- Summary table updated (this revision)
 
 ### Remaining priorities
 
 1. **H1** -- Implement operation request signature verification
 2. **M1** -- Introduce trait abstraction for KMS to enable unit testing
+3. **M6** -- Investigate atomic credential sync
