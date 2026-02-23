@@ -11,6 +11,8 @@ use aws_sdk_kms::types::{KeySpec, KeyUsageType, Tag};
 use aws_sdk_kms::Client;
 use sha2::{Digest, Sha256};
 
+use std::fmt;
+
 use crate::cose;
 use crate::KmsSigner;
 
@@ -36,6 +38,52 @@ const TAG_MANAGED: &str = passkms_tag!("managed");
 ///
 /// KMS requires at least 7 days before a key is permanently deleted.
 const KEY_DELETION_PENDING_DAYS: i32 = 7;
+
+/// A FIDO2 credential ID backed by a KMS key UUID.
+///
+/// Wraps a `String` that is always a valid KMS key identifier. Provides
+/// conversions to bytes (for WebAuthn wire format) and to `&str` (for KMS API calls).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialId(String);
+
+impl CredentialId {
+    /// Create a `CredentialId` from a KMS key UUID string.
+    pub fn new(key_id: String) -> Self {
+        Self(key_id)
+    }
+
+    /// Try to parse a credential ID from raw bytes (must be valid UTF-8).
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        std::str::from_utf8(bytes).ok().map(|s| Self(s.to_string()))
+    }
+
+    /// The credential ID as a string (KMS key UUID).
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The credential ID as bytes (for WebAuthn wire format).
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    /// Consume the credential ID into its inner string.
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Display for CredentialId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for CredentialId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
 
 /// Errors from credential store operations.
 #[derive(Debug, thiserror::Error)]
@@ -69,7 +117,7 @@ impl<E: std::error::Error + Send + Sync + 'static> From<aws_sdk_kms::error::SdkE
 #[derive(Debug, Clone)]
 pub struct CredentialMetadata {
     /// The KMS key ID (also used as the FIDO2 credential ID).
-    pub key_id: String,
+    pub key_id: CredentialId,
     /// The user handle (opaque bytes from the RP).
     pub user_handle: Option<Vec<u8>>,
     /// The user display name.
@@ -105,7 +153,7 @@ impl CredentialStore {
         user_handle: &[u8],
         user_name: Option<&str>,
         display_name: Option<&str>,
-    ) -> Result<(String, KmsSigner), CredentialStoreError> {
+    ) -> Result<(CredentialId, KmsSigner), CredentialStoreError> {
         use data_encoding::BASE64URL_NOPAD;
 
         let user_handle_b64 = BASE64URL_NOPAD.encode(user_handle);
@@ -195,19 +243,19 @@ impl CredentialStore {
         tracing::info!(key_id = %key_id, alias = %alias_name, "created credential");
 
         let signer = KmsSigner::new(self.client.clone(), key_id.clone());
-        Ok((key_id, signer))
+        Ok((CredentialId::new(key_id), signer))
     }
 
-    /// Get a signer for an existing credential, identified by RP ID and credential ID (key ID).
+    /// Get a signer for an existing credential, identified by RP ID and credential ID.
     pub async fn get_signing_key(
         &self,
         rp_id: &str,
-        credential_id: &str,
+        credential_id: &CredentialId,
     ) -> Result<KmsSigner, CredentialStoreError> {
         use aws_sdk_kms::operation::describe_key::DescribeKeyError;
 
         // Verify the alias exists by trying to describe the key through the alias
-        let alias_name = alias_name(rp_id, credential_id);
+        let alias_name = alias_name(rp_id, credential_id.as_str());
         let describe_resp = self
             .client
             .describe_key()
@@ -251,9 +299,14 @@ impl CredentialStore {
     /// Get the COSE-encoded public key for a credential.
     pub async fn get_public_key(
         &self,
-        key_id: &str,
+        key_id: &CredentialId,
     ) -> Result<coset::CoseKey, CredentialStoreError> {
-        let resp = self.client.get_public_key().key_id(key_id).send().await?;
+        let resp = self
+            .client
+            .get_public_key()
+            .key_id(key_id.as_str())
+            .send()
+            .await?;
 
         let der_bytes = resp
             .public_key()
@@ -269,9 +322,9 @@ impl CredentialStore {
     pub async fn delete_credential(
         &self,
         rp_id: &str,
-        credential_id: &str,
+        credential_id: &CredentialId,
     ) -> Result<(), CredentialStoreError> {
-        let alias = alias_name(rp_id, credential_id);
+        let alias = alias_name(rp_id, credential_id.as_str());
 
         // Delete the alias first
         self.client.delete_alias().alias_name(&alias).send().await?;
@@ -279,7 +332,7 @@ impl CredentialStore {
         // Schedule the key for deletion (minimum 7 days)
         self.client
             .schedule_key_deletion()
-            .key_id(credential_id)
+            .key_id(credential_id.as_str())
             .pending_window_in_days(KEY_DELETION_PENDING_DAYS)
             .send()
             .await?;
@@ -348,7 +401,7 @@ impl CredentialStore {
             .await?;
 
         let mut metadata = CredentialMetadata {
-            key_id: key_id.to_string(),
+            key_id: CredentialId::new(key_id.to_string()),
             user_handle: None,
             display_name: None,
             user_name: None,

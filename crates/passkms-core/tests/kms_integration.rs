@@ -210,7 +210,7 @@ async fn test_credential_metadata_stored_in_tags() {
     let _guard = CleanupGuard {
         client: client.clone(),
         rp_id: rp_id.to_string(),
-        key_id: key_id.clone(),
+        key_id: key_id.to_string(),
     };
 
     // List credentials and verify metadata

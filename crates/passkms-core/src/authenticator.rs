@@ -7,7 +7,7 @@
 use async_signature::AsyncSigner;
 use passkey_types::ctap2::{Aaguid, AttestedCredentialData, AuthenticatorData, Flags};
 
-use crate::credential_store::CredentialStore;
+use crate::credential_store::{CredentialId, CredentialStore};
 
 /// Sign counter value for authenticator data.
 ///
@@ -169,13 +169,12 @@ impl Authenticator {
 
         // 1. Check exclude list: if any credential already exists, reject
         for cred_id_bytes in &request.exclude_list {
-            let cred_id = match std::str::from_utf8(cred_id_bytes) {
-                Ok(s) => s,
-                Err(_) => continue,
+            let Some(cred_id) = CredentialId::from_bytes(cred_id_bytes) else {
+                continue;
             };
             if self
                 .store
-                .get_signing_key(&request.rp_id, cred_id)
+                .get_signing_key(&request.rp_id, &cred_id)
                 .await
                 .is_ok()
             {
@@ -198,9 +197,9 @@ impl Authenticator {
         let cose_key = self.store.get_public_key(&key_id).await?;
 
         // 4. Build attested credential data
-        let credential_id = key_id.as_bytes().to_vec();
+        let credential_id_bytes = key_id.as_bytes().to_vec();
         let attested_credential_data =
-            AttestedCredentialData::new(self.aaguid, credential_id.clone(), cose_key)
+            AttestedCredentialData::new(self.aaguid, credential_id_bytes.clone(), cose_key)
                 .map_err(|e| AuthenticatorError::Internal(e.to_string()))?;
 
         // 5. Build authenticator data
@@ -235,7 +234,7 @@ impl Authenticator {
             .map_err(|e| AuthenticatorError::Internal(e.to_string()))?;
 
         Ok(MakeCredentialResponse {
-            credential_id,
+            credential_id: credential_id_bytes,
             attestation_object,
             auth_data_bytes,
         })
@@ -250,7 +249,7 @@ impl Authenticator {
         request: &GetAssertionRequest,
     ) -> Result<Vec<GetAssertionResponse>, AuthenticatorError> {
         // 1. Find matching credentials (with signers for the non-discoverable flow)
-        let matches: Vec<(String, Option<Vec<u8>>, Option<crate::KmsSigner>)> =
+        let matches: Vec<(CredentialId, Option<Vec<u8>>, Option<crate::KmsSigner>)> =
             if request.allow_list.is_empty() {
                 // Discoverable flow: enumerate all credentials for this RP
                 let discovered = self.store.discover_credentials(&request.rp_id).await?;
@@ -259,25 +258,22 @@ impl Authenticator {
                 }
                 discovered
                     .into_iter()
-                    .map(|m| (m.key_id.clone(), m.user_handle.clone(), None))
+                    .map(|m| (m.key_id, m.user_handle, None))
                     .collect()
             } else {
                 // Non-discoverable flow: try each credential in the allow list
                 let mut found = Vec::new();
                 for cred_id_bytes in &request.allow_list {
-                    let cred_id = match std::str::from_utf8(cred_id_bytes) {
-                        Ok(s) => s,
-                        Err(_) => {
-                            tracing::warn!(
-                                credential_id_hex = %hex::encode(cred_id_bytes),
-                                "skipping non-UTF-8 credential ID in allow list"
-                            );
-                            continue;
-                        }
+                    let Some(cred_id) = CredentialId::from_bytes(cred_id_bytes) else {
+                        tracing::warn!(
+                            credential_id_hex = %hex::encode(cred_id_bytes),
+                            "skipping non-UTF-8 credential ID in allow list"
+                        );
+                        continue;
                     };
-                    match self.store.get_signing_key(&request.rp_id, cred_id).await {
+                    match self.store.get_signing_key(&request.rp_id, &cred_id).await {
                         Ok(signer) => {
-                            found.push((cred_id.to_string(), None, Some(signer)));
+                            found.push((cred_id, None, Some(signer)));
                         }
                         Err(e) => {
                             tracing::warn!(
