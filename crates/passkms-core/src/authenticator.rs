@@ -174,13 +174,10 @@ impl<S: CredentialBackend> Authenticator<S> {
             let Some(cred_id) = CredentialId::from_bytes(cred_id_bytes) else {
                 continue;
             };
-            if self
-                .store
-                .get_signing_key(&request.rp_id, &cred_id)
-                .await
-                .is_ok()
-            {
-                return Err(AuthenticatorError::CredentialExcluded);
+            match self.store.get_signing_key(&request.rp_id, &cred_id).await {
+                Ok(_) => return Err(AuthenticatorError::CredentialExcluded),
+                Err(crate::credential_store::CredentialStoreError::NotFound(_)) => continue,
+                Err(e) => return Err(AuthenticatorError::CredentialStore(e)),
             }
         }
 
