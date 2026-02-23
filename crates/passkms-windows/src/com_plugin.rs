@@ -80,6 +80,14 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             "MakeCredential request received"
         );
 
+        if req.requestType != WEBAUTHN_PLUGIN_REQUEST_TYPE::CTAP2_CBOR {
+            tracing::error!(
+                request_type = ?req.requestType,
+                "unsupported request type in MakeCredential"
+            );
+            return windows::Win32::Foundation::E_INVALIDARG;
+        }
+
         // Decode the CTAP2 CBOR request using the Windows helper
         tracing::debug!("decoding CTAP2 CBOR MakeCredential request");
         let mut decoded: *mut WEBAUTHN_CTAPCBOR_MAKE_CREDENTIAL_REQUEST = std::ptr::null_mut();
@@ -324,6 +332,14 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             signature_len = req.cbRequestSignature,
             "GetAssertion request received"
         );
+
+        if req.requestType != WEBAUTHN_PLUGIN_REQUEST_TYPE::CTAP2_CBOR {
+            tracing::error!(
+                request_type = ?req.requestType,
+                "unsupported request type in GetAssertion"
+            );
+            return windows::Win32::Foundation::E_INVALIDARG;
+        }
 
         // Decode the CTAP2 CBOR request
         tracing::debug!("decoding CTAP2 CBOR GetAssertion request");
