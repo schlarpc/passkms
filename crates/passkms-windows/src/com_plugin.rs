@@ -22,6 +22,81 @@ const WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION: u32 = 8;
 const WEBAUTHN_ASSERTION_VERSION: u32 = 6;
 const WEBAUTHN_CREDENTIAL_VERSION: u32 = 1;
 
+/// Extract the RP ID string from a raw byte pointer and length.
+///
+/// # Safety
+/// `pb_rp_id` must be a valid pointer to `cb_rp_id` bytes when non-null.
+unsafe fn extract_rp_id(pb_rp_id: *const u8, cb_rp_id: u32) -> Result<String, HRESULT> {
+    if pb_rp_id.is_null() {
+        tracing::error!("pbRpId is null in decoded request");
+        return Err(windows::Win32::Foundation::E_INVALIDARG);
+    }
+    match std::str::from_utf8(std::slice::from_raw_parts(pb_rp_id, cb_rp_id as usize)) {
+        Ok(s) => Ok(s.to_string()),
+        Err(e) => {
+            tracing::error!(error = %e, "invalid UTF-8 in RP ID");
+            Err(windows::Win32::Foundation::E_INVALIDARG)
+        }
+    }
+}
+
+/// Extract the client data hash from a raw byte pointer and length.
+///
+/// Returns `E_INVALIDARG` if the pointer is null or the length is not 32 bytes.
+///
+/// # Safety
+/// `pb_hash` must be a valid pointer to `cb_hash` bytes when non-null.
+unsafe fn extract_client_data_hash(pb_hash: *const u8, cb_hash: u32) -> Result<[u8; 32], HRESULT> {
+    if pb_hash.is_null() {
+        tracing::error!("pbClientDataHash is null in decoded request");
+        return Err(windows::Win32::Foundation::E_INVALIDARG);
+    }
+    let slice = std::slice::from_raw_parts(pb_hash, cb_hash as usize);
+    <[u8; 32]>::try_from(slice).map_err(|_| {
+        tracing::error!(len = cb_hash, "client data hash is not 32 bytes");
+        windows::Win32::Foundation::E_INVALIDARG
+    })
+}
+
+/// Extract credential IDs from a `WEBAUTHN_CREDENTIAL_LIST`.
+///
+/// Returns `E_INVALIDARG` if `ppCredentials` is null with a non-zero count.
+/// Skips individual credentials that have null `pbId` with non-zero `cbId`.
+///
+/// # Safety
+/// `list.ppCredentials` must be a valid pointer array of `list.cCredentials` entries
+/// when non-null. Each credential's `pbId` must be valid for `cbId` bytes when non-null.
+unsafe fn extract_credential_list(
+    list: &WEBAUTHN_CREDENTIAL_LIST,
+) -> Result<Vec<Vec<u8>>, HRESULT> {
+    if list.cCredentials > 0 && list.ppCredentials.is_null() {
+        tracing::error!("ppCredentials is null with non-zero cCredentials");
+        return Err(windows::Win32::Foundation::E_INVALIDARG);
+    }
+    let mut result = Vec::new();
+    for i in 0..list.cCredentials {
+        let cred_ptr = *list.ppCredentials.add(i as usize);
+        if cred_ptr.is_null() {
+            continue;
+        }
+        let cred = &*cred_ptr;
+        if cred.pbId.is_null() && cred.cbId > 0 {
+            tracing::warn!(
+                index = i,
+                "credential has null pbId with non-zero cbId, skipping"
+            );
+            continue;
+        }
+        let id = if cred.pbId.is_null() {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
+        };
+        result.push(id);
+    }
+    Ok(result)
+}
+
 /// The plugin authenticator COM object.
 ///
 /// Each instance shares a reference to the tokio runtime (for blocking on async
@@ -107,42 +182,23 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         // then free the decoded struct. This avoids any risk of use-after-free since
         // the decoded struct is Windows-allocated memory with no Rust lifetime tracking.
 
-        let rp_id = if decoded_ref.pbRpId.is_null() {
-            tracing::error!("pbRpId is null in decoded MakeCredential request");
-            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
-            return windows::Win32::Foundation::E_INVALIDARG;
-        } else {
-            match std::str::from_utf8(std::slice::from_raw_parts(
-                decoded_ref.pbRpId,
-                decoded_ref.cbRpId as usize,
-            )) {
-                Ok(s) => s.to_string(),
-                Err(e) => {
-                    tracing::error!(error = %e, "invalid UTF-8 in RP ID");
-                    WebAuthNFreeDecodedMakeCredentialRequest(decoded);
-                    return windows::Win32::Foundation::E_INVALIDARG;
-                }
+        let rp_id = match extract_rp_id(decoded_ref.pbRpId, decoded_ref.cbRpId) {
+            Ok(id) => id,
+            Err(hr) => {
+                WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+                return hr;
             }
         };
 
-        let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
-            tracing::error!("pbClientDataHash is null in decoded MakeCredential request");
-            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
-            return windows::Win32::Foundation::E_INVALIDARG;
-        } else {
-            let slice = std::slice::from_raw_parts(
-                decoded_ref.pbClientDataHash,
-                decoded_ref.cbClientDataHash as usize,
-            );
-            let Ok(hash) = <[u8; 32]>::try_from(slice) else {
-                tracing::error!(
-                    len = decoded_ref.cbClientDataHash,
-                    "client data hash is not 32 bytes"
-                );
+        let client_data_hash = match extract_client_data_hash(
+            decoded_ref.pbClientDataHash,
+            decoded_ref.cbClientDataHash,
+        ) {
+            Ok(hash) => hash,
+            Err(hr) => {
                 WebAuthNFreeDecodedMakeCredentialRequest(decoded);
-                return windows::Win32::Foundation::E_INVALIDARG;
-            };
-            hash
+                return hr;
+            }
         };
 
         if decoded_ref.pUserInformation.is_null() {
@@ -180,33 +236,13 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             }
         }
 
-        let mut exclude_list = Vec::new();
-        let excl_list_valid = decoded_ref.CredentialList.cCredentials == 0
-            || !decoded_ref.CredentialList.ppCredentials.is_null();
-        if !excl_list_valid {
-            tracing::error!("ppCredentials is null with non-zero cCredentials in exclude list");
-            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
-            return windows::Win32::Foundation::E_INVALIDARG;
-        }
-        for i in 0..decoded_ref.CredentialList.cCredentials {
-            let cred_ptr = *decoded_ref.CredentialList.ppCredentials.add(i as usize);
-            if !cred_ptr.is_null() {
-                let cred = &*cred_ptr;
-                if cred.pbId.is_null() && cred.cbId > 0 {
-                    tracing::warn!(
-                        index = i,
-                        "exclude list credential has null pbId with non-zero cbId, skipping"
-                    );
-                    continue;
-                }
-                let id = if cred.pbId.is_null() {
-                    Vec::new()
-                } else {
-                    std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
-                };
-                exclude_list.push(id);
+        let exclude_list = match extract_credential_list(&decoded_ref.CredentialList) {
+            Ok(list) => list,
+            Err(hr) => {
+                WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+                return hr;
             }
-        }
+        };
 
         // All data copied — free the decoded request immediately
         WebAuthNFreeDecodedMakeCredentialRequest(decoded);
@@ -359,71 +395,32 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         // then free the decoded struct. This avoids any risk of use-after-free since
         // the decoded struct is Windows-allocated memory with no Rust lifetime tracking.
 
-        let rp_id = if decoded_ref.pbRpId.is_null() {
-            tracing::error!("pbRpId is null in decoded GetAssertion request");
-            WebAuthNFreeDecodedGetAssertionRequest(decoded);
-            return windows::Win32::Foundation::E_INVALIDARG;
-        } else {
-            match std::str::from_utf8(std::slice::from_raw_parts(
-                decoded_ref.pbRpId,
-                decoded_ref.cbRpId as usize,
-            )) {
-                Ok(s) => s.to_string(),
-                Err(e) => {
-                    tracing::error!(error = %e, "invalid UTF-8 in RP ID");
-                    WebAuthNFreeDecodedGetAssertionRequest(decoded);
-                    return windows::Win32::Foundation::E_INVALIDARG;
-                }
-            }
-        };
-
-        let client_data_hash = if decoded_ref.pbClientDataHash.is_null() {
-            tracing::error!("pbClientDataHash is null in decoded GetAssertion request");
-            WebAuthNFreeDecodedGetAssertionRequest(decoded);
-            return windows::Win32::Foundation::E_INVALIDARG;
-        } else {
-            let slice = std::slice::from_raw_parts(
-                decoded_ref.pbClientDataHash,
-                decoded_ref.cbClientDataHash as usize,
-            );
-            let Ok(hash) = <[u8; 32]>::try_from(slice) else {
-                tracing::error!(
-                    len = decoded_ref.cbClientDataHash,
-                    "client data hash is not 32 bytes"
-                );
+        let rp_id = match extract_rp_id(decoded_ref.pbRpId, decoded_ref.cbRpId) {
+            Ok(id) => id,
+            Err(hr) => {
                 WebAuthNFreeDecodedGetAssertionRequest(decoded);
-                return windows::Win32::Foundation::E_INVALIDARG;
-            };
-            hash
+                return hr;
+            }
         };
 
-        let mut allow_list = Vec::new();
-        let cred_list_valid = decoded_ref.CredentialList.cCredentials == 0
-            || !decoded_ref.CredentialList.ppCredentials.is_null();
-        if !cred_list_valid {
-            tracing::error!("ppCredentials is null with non-zero cCredentials");
-            WebAuthNFreeDecodedGetAssertionRequest(decoded);
-            return windows::Win32::Foundation::E_INVALIDARG;
-        }
-        for i in 0..decoded_ref.CredentialList.cCredentials {
-            let cred_ptr = *decoded_ref.CredentialList.ppCredentials.add(i as usize);
-            if !cred_ptr.is_null() {
-                let cred = &*cred_ptr;
-                if cred.pbId.is_null() && cred.cbId > 0 {
-                    tracing::warn!(
-                        index = i,
-                        "credential has null pbId with non-zero cbId, skipping"
-                    );
-                    continue;
-                }
-                let id = if cred.pbId.is_null() {
-                    Vec::new()
-                } else {
-                    std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
-                };
-                allow_list.push(id);
+        let client_data_hash = match extract_client_data_hash(
+            decoded_ref.pbClientDataHash,
+            decoded_ref.cbClientDataHash,
+        ) {
+            Ok(hash) => hash,
+            Err(hr) => {
+                WebAuthNFreeDecodedGetAssertionRequest(decoded);
+                return hr;
             }
-        }
+        };
+
+        let allow_list = match extract_credential_list(&decoded_ref.CredentialList) {
+            Ok(list) => list,
+            Err(hr) => {
+                WebAuthNFreeDecodedGetAssertionRequest(decoded);
+                return hr;
+            }
+        };
 
         // All data copied — free the decoded request immediately
         WebAuthNFreeDecodedGetAssertionRequest(decoded);
