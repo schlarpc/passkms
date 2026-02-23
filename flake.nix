@@ -218,12 +218,29 @@
             inherit cargoArtifacts;
           });
 
+          # Verify documentation builds without warnings
+          doc = craneLib.cargoDoc (commonArgs // {
+            inherit cargoArtifacts;
+            cargoDocExtraArgs = "--no-deps";
+            RUSTDOCFLAGS = "-D warnings";
+          });
+
           # Audit dependencies for known vulnerabilities
           audit = craneLib.cargoAudit {
             inherit advisory-db;
             src = commonArgs.src;
           };
         });
+
+      # Runnable applications
+      apps = eachSystem (system: {
+        default = self.apps.${system}.passkms-server;
+
+        passkms-server = {
+          type = "app";
+          program = "${self.packages.${system}.passkms-server}/bin/passkms-server";
+        };
+      });
 
       # Development shell
       devShells = eachSystem (system:
