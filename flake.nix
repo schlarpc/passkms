@@ -12,9 +12,14 @@
     };
 
     crane.url = "github:ipetkov/crane";
+
+    advisory-db = {
+      url = "github:rustsec/advisory-db";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, systems, rust-overlay, crane, ... }:
+  outputs = { self, nixpkgs, systems, rust-overlay, crane, advisory-db, ... }:
     let
       eachSystem = nixpkgs.lib.genAttrs (import systems);
 
@@ -212,6 +217,12 @@
           coverage = craneLib.cargoLlvmCov (commonArgs // {
             inherit cargoArtifacts;
           });
+
+          # Audit dependencies for known vulnerabilities
+          audit = craneLib.cargoAudit {
+            inherit advisory-db;
+            src = commonArgs.src;
+          };
         });
 
       # Development shell
