@@ -88,6 +88,16 @@
           pkgs = pkgsFor system;
           windowsSdk = windowsSdkFor system;
           clangMajor = pkgs.lib.versions.major pkgs.llvmPackages.clang-unwrapped.version;
+          msvcFlags = builtins.concatStringsSep " " [
+            "--target=x86_64-pc-windows-msvc"
+            "-Wno-unused-command-line-argument"
+            "-fuse-ld=lld-link"
+            "/imsvc${pkgs.llvmPackages.clang-unwrapped.lib}/lib/clang/${clangMajor}/include"
+            "/imsvc${windowsSdk}/crt/include"
+            "/imsvc${windowsSdk}/sdk/include/ucrt"
+            "/imsvc${windowsSdk}/sdk/include/um"
+            "/imsvc${windowsSdk}/sdk/include/shared"
+          ];
         in
         {
           CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc";
@@ -95,26 +105,8 @@
           CC_x86_64_pc_windows_msvc = "clang-cl";
           CXX_x86_64_pc_windows_msvc = "clang-cl";
           AR_x86_64_pc_windows_msvc = "llvm-lib";
-          CFLAGS_x86_64_pc_windows_msvc = builtins.concatStringsSep " " [
-            "--target=x86_64-pc-windows-msvc"
-            "-Wno-unused-command-line-argument"
-            "-fuse-ld=lld-link"
-            "/imsvc${pkgs.llvmPackages.clang-unwrapped.lib}/lib/clang/${clangMajor}/include"
-            "/imsvc${windowsSdk}/crt/include"
-            "/imsvc${windowsSdk}/sdk/include/ucrt"
-            "/imsvc${windowsSdk}/sdk/include/um"
-            "/imsvc${windowsSdk}/sdk/include/shared"
-          ];
-          CXXFLAGS_x86_64_pc_windows_msvc = builtins.concatStringsSep " " [
-            "--target=x86_64-pc-windows-msvc"
-            "-Wno-unused-command-line-argument"
-            "-fuse-ld=lld-link"
-            "/imsvc${pkgs.llvmPackages.clang-unwrapped.lib}/lib/clang/${clangMajor}/include"
-            "/imsvc${windowsSdk}/crt/include"
-            "/imsvc${windowsSdk}/sdk/include/ucrt"
-            "/imsvc${windowsSdk}/sdk/include/um"
-            "/imsvc${windowsSdk}/sdk/include/shared"
-          ];
+          CFLAGS_x86_64_pc_windows_msvc = msvcFlags;
+          CXXFLAGS_x86_64_pc_windows_msvc = msvcFlags;
           CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = builtins.concatStringsSep " " [
             "-Clinker-flavor=lld-link"
             "-Lnative=${windowsSdk}/crt/lib/x86_64"
