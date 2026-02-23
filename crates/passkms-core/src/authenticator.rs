@@ -9,6 +9,12 @@ use passkey_types::ctap2::{Aaguid, AttestedCredentialData, AuthenticatorData, Fl
 
 use crate::credential_store::CredentialStore;
 
+/// Sign counter value for authenticator data.
+///
+/// A constant 0 signals "no counter support" per WebAuthn spec, which is safer
+/// than a timestamp-based counter that can go backwards with clock adjustments.
+const SIGN_COUNT: u32 = 0;
+
 /// AAGUID identifying passkms as an authenticator model.
 ///
 /// This value is embedded in attested credential data during registration
@@ -198,9 +204,7 @@ impl Authenticator {
                 .map_err(|e| AuthenticatorError::Internal(e.to_string()))?;
 
         // 5. Build authenticator data
-        // Counter=0 signals "no counter support" per WebAuthn spec, which is safer
-        // than a timestamp-based counter that can go backwards with clock adjustments.
-        let mut auth_data = AuthenticatorData::new(&request.rp_id, Some(0))
+        let mut auth_data = AuthenticatorData::new(&request.rp_id, Some(SIGN_COUNT))
             .set_attested_credential_data(attested_credential_data);
         if request.user_presence {
             auth_data = auth_data.set_flags(Flags::UP);
@@ -300,7 +304,7 @@ impl Authenticator {
             };
 
             // Build authenticator data (no attested credential data for assertions)
-            let mut auth_data = AuthenticatorData::new(&request.rp_id, Some(0));
+            let mut auth_data = AuthenticatorData::new(&request.rp_id, Some(SIGN_COUNT));
             if request.user_presence {
                 auth_data = auth_data.set_flags(Flags::UP);
             }

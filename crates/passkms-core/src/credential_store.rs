@@ -32,6 +32,11 @@ const TAG_USER_NAME: &str = passkms_tag!("user_name");
 const TAG_RP_ID: &str = passkms_tag!("rp_id");
 const TAG_MANAGED: &str = passkms_tag!("managed");
 
+/// Minimum KMS key deletion pending window in days.
+///
+/// KMS requires at least 7 days before a key is permanently deleted.
+const KEY_DELETION_PENDING_DAYS: i32 = 7;
+
 /// Errors from credential store operations.
 #[derive(Debug, thiserror::Error)]
 pub enum CredentialStoreError {
@@ -181,7 +186,7 @@ impl CredentialStore {
                 .client
                 .schedule_key_deletion()
                 .key_id(&key_id)
-                .pending_window_in_days(7)
+                .pending_window_in_days(KEY_DELETION_PENDING_DAYS)
                 .send()
                 .await;
             return Err(e.into());
@@ -275,7 +280,7 @@ impl CredentialStore {
         self.client
             .schedule_key_deletion()
             .key_id(credential_id)
-            .pending_window_in_days(7)
+            .pending_window_in_days(KEY_DELETION_PENDING_DAYS)
             .send()
             .await?;
 
