@@ -118,7 +118,13 @@ fn main() {
             tracing::info!("default mode: ensuring registration and syncing credentials");
 
             tracing::debug!("building tokio runtime");
-            let runtime = Arc::new(build_runtime());
+            let runtime = match build_runtime() {
+                Ok(rt) => Arc::new(rt),
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to create tokio runtime");
+                    std::process::exit(1);
+                }
+            };
             let authenticator = Arc::new(build_authenticator(&runtime));
 
             // Ensure plugin is registered with Windows WebAuthn
@@ -140,7 +146,13 @@ fn main() {
         Mode::PluginActivated => {
             tracing::info!("COM activation mode (-PluginActivated)");
             tracing::debug!("building tokio runtime");
-            let runtime = Arc::new(build_runtime());
+            let runtime = match build_runtime() {
+                Ok(rt) => Arc::new(rt),
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to create tokio runtime");
+                    std::process::exit(1);
+                }
+            };
             let authenticator = Arc::new(build_authenticator(&runtime));
             tracing::debug!("entering COM server loop");
             run_com_server(runtime, authenticator);
@@ -148,11 +160,10 @@ fn main() {
     }
 }
 
-fn build_runtime() -> tokio::runtime::Runtime {
+fn build_runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .expect("failed to create tokio runtime")
 }
 
 /// Build the passkms-core Authenticator, loading AWS config from the environment.
@@ -172,15 +183,24 @@ fn run_com_server(
     runtime: Arc<tokio::runtime::Runtime>,
     authenticator: Arc<passkms_core::Authenticator>,
 ) {
+    if let Err(e) = run_com_server_inner(runtime, authenticator) {
+        tracing::error!(error = %e, "COM server failed");
+        std::process::exit(1);
+    }
+}
+
+/// Inner implementation that propagates errors instead of panicking.
+fn run_com_server_inner(
+    runtime: Arc<tokio::runtime::Runtime>,
+    authenticator: Arc<passkms_core::Authenticator>,
+) -> windows::core::Result<()> {
     // SAFETY: COM API calls require unsafe. We ensure correct sequencing:
     // CoInitializeEx before any COM calls, CoRevokeClassObject + CoUninitialize
     // on shutdown. Called on the main thread which owns the message loop.
     unsafe {
         // Initialize COM for multi-threaded apartment
         tracing::debug!("initializing COM (COINIT_MULTITHREADED)");
-        CoInitializeEx(None, COINIT_MULTITHREADED)
-            .ok()
-            .expect("CoInitializeEx failed");
+        CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 
         // Create and register our class factory
         tracing::debug!("creating PasskeyClassFactory");
@@ -192,10 +212,9 @@ fn run_com_server(
             &factory_unknown,
             CLSCTX_LOCAL_SERVER,
             REGCLS_MULTIPLEUSE | REGCLS_SUSPENDED,
-        )
-        .expect("CoRegisterClassObject failed");
+        )?;
 
-        CoResumeClassObjects().expect("CoResumeClassObjects failed");
+        CoResumeClassObjects()?;
 
         tracing::info!(clsid = ?PASSKEY_CLSID, "COM server registered, waiting for requests");
 
@@ -203,9 +222,10 @@ fn run_com_server(
         message_loop();
 
         tracing::info!("shutting down");
-        CoRevokeClassObject(cookie).expect("CoRevokeClassObject failed");
+        CoRevokeClassObject(cookie)?;
         CoUninitialize();
     }
+    Ok(())
 }
 
 /// Simple Win32 message loop to keep the COM server alive.
