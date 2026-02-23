@@ -11,6 +11,9 @@ default-members = [
     "crates/passkms-server",
 ]
 
+[workspace.metadata.crane]
+name = "passkms"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
