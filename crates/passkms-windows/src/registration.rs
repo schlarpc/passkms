@@ -76,7 +76,7 @@ pub fn register() -> Result<(), HRESULT> {
         pwszPluginRpId: rp_id.as_ptr(),
         pwszLightThemeLogoSvg: logo.as_ptr(),
         pwszDarkThemeLogoSvg: logo.as_ptr(),
-        cbAuthenticatorInfo: authenticator_info.len() as u32,
+        cbAuthenticatorInfo: crate::util::len_as_u32(authenticator_info.len()),
         pbAuthenticatorInfo: authenticator_info.as_ptr(),
         cSupportedRpIds: 0,
         ppwszSupportedRpIds: ptr::null(),
@@ -219,11 +219,11 @@ pub fn sync_credentials(
     let details: Vec<WEBAUTHN_PLUGIN_CREDENTIAL_DETAILS> = owned
         .iter()
         .map(|d| WEBAUTHN_PLUGIN_CREDENTIAL_DETAILS {
-            cbCredentialId: d.key_id_bytes.len() as u32,
+            cbCredentialId: crate::util::len_as_u32(d.key_id_bytes.len()),
             pbCredentialId: d.key_id_bytes.as_ptr(),
             pwszRpId: d.rp_id.as_ptr(),
             pwszRpName: d.rp_name.as_ptr(),
-            cbUserId: d.user_handle.len() as u32,
+            cbUserId: crate::util::len_as_u32(d.user_handle.len()),
             pbUserId: d.user_handle.as_ptr(),
             pwszUserName: d.user_name.as_ptr(),
             pwszUserDisplayName: d.display_name.as_ptr(),
@@ -253,7 +253,7 @@ pub fn sync_credentials(
     let hr = unsafe {
         WebAuthNPluginAuthenticatorAddCredentials(
             &PASSKEY_CLSID,
-            details.len() as u32,
+            crate::util::len_as_u32(details.len()),
             details.as_ptr(),
         )
     };

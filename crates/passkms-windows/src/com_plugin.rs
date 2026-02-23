@@ -10,7 +10,7 @@ use std::time::Duration;
 use windows::core::{implement, HRESULT};
 
 use crate::bindings::*;
-use crate::util::{wide_nul, wide_ptr_to_string};
+use crate::util::{len_as_u32, wide_nul, wide_ptr_to_string};
 
 /// Timeout for KMS operations via the COM plugin.
 /// Prevents indefinite blocking if KMS is unreachable.
@@ -51,7 +51,6 @@ impl PluginAuthenticator {
 /// copies all data from Windows-allocated structs into owned Rust types immediately
 /// to avoid use-after-free when the decoded requests are freed.
 impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
-    #[allow(clippy::cast_possible_truncation)]
     unsafe fn MakeCredential(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,
@@ -270,9 +269,9 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                     unsafe { std::mem::zeroed() };
                 attestation.dwVersion = WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION;
                 attestation.pwszFormatType = fmt_wide.as_ptr();
-                attestation.cbAuthenticatorData = core_response.auth_data_bytes.len() as u32;
+                attestation.cbAuthenticatorData = len_as_u32(core_response.auth_data_bytes.len());
                 attestation.pbAuthenticatorData = core_response.auth_data_bytes.as_ptr() as *mut u8;
-                attestation.cbCredentialId = core_response.credential_id.len() as u32;
+                attestation.cbCredentialId = len_as_u32(core_response.credential_id.len());
                 attestation.pbCredentialId = core_response.credential_id.as_ptr() as *mut u8;
 
                 tracing::debug!("encoding MakeCredential response to CTAP2 CBOR");
@@ -304,7 +303,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     unsafe fn GetAssertion(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,
@@ -488,19 +486,22 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
                 let mut webauthn_assertion: WEBAUTHN_ASSERTION = std::mem::zeroed();
                 webauthn_assertion.dwVersion = WEBAUTHN_ASSERTION_VERSION;
-                webauthn_assertion.cbAuthenticatorData = assertion.auth_data_bytes.len() as u32;
+                webauthn_assertion.cbAuthenticatorData =
+                    len_as_u32(assertion.auth_data_bytes.len());
                 webauthn_assertion.pbAuthenticatorData =
                     assertion.auth_data_bytes.as_ptr() as *mut u8;
-                webauthn_assertion.cbSignature = assertion.signature.len() as u32;
+                webauthn_assertion.cbSignature = len_as_u32(assertion.signature.len());
                 webauthn_assertion.pbSignature = assertion.signature.as_ptr() as *mut u8;
                 webauthn_assertion.Credential = WEBAUTHN_CREDENTIAL {
                     dwVersion: WEBAUTHN_CREDENTIAL_VERSION,
-                    cbId: assertion.credential_id.len() as u32,
+                    cbId: len_as_u32(assertion.credential_id.len()),
                     pbId: assertion.credential_id.as_ptr(),
                     pwszCredentialType: cred_type_wide.as_ptr(),
                 };
-                webauthn_assertion.cbUserId =
-                    assertion.user_handle.as_ref().map_or(0, |h| h.len() as u32);
+                webauthn_assertion.cbUserId = assertion
+                    .user_handle
+                    .as_ref()
+                    .map_or(0, |h| len_as_u32(h.len()));
                 webauthn_assertion.pbUserId = assertion
                     .user_handle
                     .as_ref()
@@ -509,7 +510,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
                 let ga_response = WEBAUTHN_CTAPCBOR_GET_ASSERTION_RESPONSE {
                     WebAuthNAssertion: webauthn_assertion,
                     pUserInformation: std::ptr::null(),
-                    dwNumberOfCredentials: assertions.len() as u32,
+                    dwNumberOfCredentials: len_as_u32(assertions.len()),
                     lUserSelected: 0,
                     cbLargeBlobKey: 0,
                     pbLargeBlobKey: std::ptr::null(),

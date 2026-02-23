@@ -1,7 +1,18 @@
-//! Shared utility functions for UTF-16 string conversion.
+//! Shared utility functions for UTF-16 string conversion and FFI helpers.
 
 /// Maximum number of UTF-16 code units to scan when reading a wide string pointer.
 const MAX_WIDE_STRING_LEN: usize = 4096;
+
+/// Convert a `usize` length to `u32` for FFI structs.
+///
+/// WebAuthn response struct fields use `u32` for lengths. All values passed
+/// through this function are inherently small (credential IDs are UUIDs at
+/// 36 bytes, auth data ~37-140 bytes, signatures ~72 bytes), so truncation
+/// is impossible in practice. Using `try_from` instead of `as` makes this
+/// guarantee explicit.
+pub fn len_as_u32(len: usize) -> u32 {
+    u32::try_from(len).expect("length exceeds u32::MAX")
+}
 
 /// Create a null-terminated UTF-16 string from a Rust `&str`.
 pub fn wide_nul(s: &str) -> Vec<u16> {
