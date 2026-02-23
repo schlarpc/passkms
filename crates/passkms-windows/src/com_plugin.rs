@@ -51,6 +51,7 @@ impl PluginAuthenticator {
 /// copies all data from Windows-allocated structs into owned Rust types immediately
 /// to avoid use-after-free when the decoded requests are freed.
 impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
+    #[allow(clippy::cast_possible_truncation)]
     unsafe fn MakeCredential(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,
@@ -160,7 +161,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         let discoverable = decoded_ref
             .pAuthenticatorOptions
             .as_ref()
-            .map_or(false, |opts| opts.lRequireResidentKey > 0);
+            .is_some_and(|opts| opts.lRequireResidentKey > 0);
 
         let rp_name = if decoded_ref.pRpInformation.is_null() {
             None
@@ -302,6 +303,7 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     unsafe fn GetAssertion(
         &self,
         request: *const WEBAUTHN_PLUGIN_OPERATION_REQUEST,

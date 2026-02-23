@@ -10,7 +10,7 @@
 
 use std::ffi::c_void;
 
-use windows::core::{IUnknown, Interface, GUID, HRESULT};
+use windows::core::{IUnknown, GUID, HRESULT};
 use windows::Win32::Foundation::HWND;
 use windows_core::{IUnknown_Vtbl, BOOL};
 
