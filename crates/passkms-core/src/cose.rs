@@ -34,9 +34,7 @@ pub fn spki_der_to_cose_key(der_bytes: &[u8]) -> Result<CoseKey, CoseConversionE
 }
 
 /// Convert a `p256::PublicKey` to a COSE key.
-fn p256_public_key_to_cose_key(
-    public_key: &PublicKey,
-) -> Result<CoseKey, CoseConversionError> {
+fn p256_public_key_to_cose_key(public_key: &PublicKey) -> Result<CoseKey, CoseConversionError> {
     let encoded_point = public_key.to_encoded_point(false);
     let x = encoded_point
         .x()
@@ -47,9 +45,11 @@ fn p256_public_key_to_cose_key(
         .ok_or(CoseConversionError::MissingCoordinate)?
         .to_vec();
 
-    Ok(coset::CoseKeyBuilder::new_ec2_pub_key(iana::EllipticCurve::P_256, x, y)
-        .algorithm(iana::Algorithm::ES256)
-        .build())
+    Ok(
+        coset::CoseKeyBuilder::new_ec2_pub_key(iana::EllipticCurve::P_256, x, y)
+            .algorithm(iana::Algorithm::ES256)
+            .build(),
+    )
 }
 
 /// Extract the raw x and y coordinates from a DER-encoded SPKI public key.
