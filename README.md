@@ -29,7 +29,7 @@ signaling "no counter support" per the WebAuthn spec.
 - AWS credentials with KMS permissions (`kms:CreateKey`, `kms:CreateAlias`, `kms:Sign`,
   `kms:DescribeKey`, `kms:GetPublicKey`, `kms:ListAliases`, `kms:ListResourceTags`,
   `kms:ScheduleKeyDeletion`, `kms:DeleteAlias`, `kms:TagResource`)
-- Windows 10/11 for the WebAuthn plugin (the core library and test server work on any platform)
+- Windows 10/11 for the WebAuthn plugin (the core library and CLI work on any platform)
 
 ## Project structure
 
@@ -89,7 +89,7 @@ cargo nextest run --test kms_integration --run-ignored
 # Run all Nix checks (build, clippy, fmt, test, coverage, audit)
 nix flake check
 
-# Test server CLI
+# Test CLI
 cargo run -p passkms-server -- register example.com testuser
 cargo run -p passkms-server -- authenticate example.com <credential-id>
 cargo run -p passkms-server -- list example.com
