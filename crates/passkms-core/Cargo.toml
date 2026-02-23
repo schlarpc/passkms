@@ -19,6 +19,7 @@ sha2.workspace = true
 ecdsa.workspace = true
 signature.workspace = true
 async-signature.workspace = true
+futures.workspace = true
 data-encoding.workspace = true
 hex.workspace = true
 serde.workspace = true

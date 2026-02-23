@@ -406,7 +406,9 @@ impl CredentialStore {
         &self,
         prefix: &str,
     ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
-        let mut credentials = Vec::new();
+        // Collect all matching key IDs from the paginator first, then fetch
+        // metadata concurrently to reduce latency for larger credential sets.
+        let mut key_ids = Vec::new();
 
         let mut paginator = self.client.list_aliases().into_paginator().send();
 
@@ -417,20 +419,29 @@ impl CredentialStore {
                 if !name.starts_with(prefix) {
                     continue;
                 }
+                if let Some(target_key_id) = alias.target_key_id() {
+                    key_ids.push(target_key_id.to_string());
+                }
+            }
+        }
 
-                let Some(target_key_id) = alias.target_key_id() else {
-                    continue;
-                };
+        let results = futures::future::join_all(
+            key_ids
+                .iter()
+                .map(|key_id| self.get_credential_metadata(key_id)),
+        )
+        .await;
 
-                match self.get_credential_metadata(target_key_id).await {
-                    Ok(metadata) => credentials.push(metadata),
-                    Err(e) => {
-                        tracing::warn!(
-                            key_id = %target_key_id,
-                            error = %e,
-                            "skipping credential with unreadable metadata"
-                        );
-                    }
+        let mut credentials = Vec::new();
+        for (key_id, result) in key_ids.iter().zip(results) {
+            match result {
+                Ok(metadata) => credentials.push(metadata),
+                Err(e) => {
+                    tracing::warn!(
+                        key_id = %key_id,
+                        error = %e,
+                        "skipping credential with unreadable metadata"
+                    );
                 }
             }
         }

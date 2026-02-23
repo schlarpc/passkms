@@ -48,6 +48,9 @@ ecdsa = { version = "0.16", features = ["der"] }
 signature = "2"
 async-signature = "0.5"
 
+# Async utilities
+futures = "0.3"
+
 # Encoding
 data-encoding = "2"
 hex = "0.4"
