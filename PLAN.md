@@ -1,5 +1,9 @@
 # passkms
 
+> **Note:** This is a historical planning document from before implementation.
+> Some details (file names, design decisions) may not reflect the current codebase.
+> See `README.md` and `CLAUDE.md` for up-to-date documentation.
+
 A Rust-based software FIDO2 passkey implementation backed entirely by AWS KMS.
 Private key material never leaves KMS -- no envelope encryption, no local keys.
 

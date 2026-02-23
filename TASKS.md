@@ -1,4 +1,7 @@
-# passkms Task Tracking
+# passkms Task Tracking (Historical)
+
+> **Note:** This is a historical task tracking document from the initial implementation.
+> Some decisions recorded here were later revised. See `README.md` for current behavior.
 
 <!-- AGENT RESUME CONTEXT
 If resuming work on this project, read this file first to understand current state.
