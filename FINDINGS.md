@@ -26,22 +26,6 @@ requests.
 
 ## Medium
 
-### M1. No mock infrastructure for AWS KMS -- core logic untestable offline
-**Category:** Testing / Architecture
-**Files:** `crates/passkms-core/src/credential_store.rs:79-87`, `crates/passkms-core/src/authenticator.rs:132-140`
-
-`CredentialStore` holds a concrete `aws_sdk_kms::Client` with no trait abstraction.
-`make_credential()` and `get_assertion()` -- the two most critical functions -- have zero unit
-tests. The only test coverage comes from opt-in integration tests requiring real AWS credentials.
-`delete_credential()` and `list_all_credentials()` have zero test coverage anywhere.
-
-Effective automated test coverage: 8 unit tests run during `nix flake check`. Integration
-tests are `#[ignore]` and never run in CI. Error path test coverage is ~8% (1 of 13 error
-variants tested).
-
-**Fix:** Introduce a `CredentialStorage` trait to decouple from the concrete KMS client,
-enabling mock-based unit testing of `Authenticator`, `CredentialStore`, and `KmsSigner`.
-
 ### M6. Non-atomic credential sync creates a gap with no credentials
 **Category:** Correctness
 **Files:** `crates/passkms-windows/src/registration.rs:233-258`
@@ -57,23 +41,14 @@ window by preparing data before removing.
 
 ## Low
 
-### L1. Credential IDs are KMS UUIDs, enabling authenticator fingerprinting
+### L1. Credential IDs are KMS UUIDs, enabling authenticator fingerprinting -- NOT FIXABLE
 **Category:** Security / Privacy
 **Files:** `crates/passkms-core/src/credential_store.rs:153,179`
 
 Credential IDs are the UTF-8 string bytes of KMS key UUIDs. The UUID v4 format with hyphens is
-distinctive and reveals the authenticator type to relying parties. Most authenticators use
-opaque random binary credential IDs.
-
-### L2. `list_aliases` fetches all aliases, filters client-side
-**Category:** Performance
-**Files:** `crates/passkms-core/src/credential_store.rs:297-331`
-
-The KMS `ListAliases` API does not support server-side prefix filtering. All aliases in the
-account are fetched and filtered client-side. Slow in accounts with many aliases. Additionally,
-`get_credential_metadata` is called sequentially for each discovered alias, making N+1 API
-calls. Concurrent fetching with `FuturesUnordered` would improve latency for larger credential
-sets.
+distinctive and reveals the authenticator type to relying parties. This is an inherent trade-off
+of the KMS-backed architecture: credential IDs must map directly to KMS key UUIDs for the
+alias-based lookup system. Making them opaque would require a separate mapping store.
 
 ### L3. `#![allow(unsafe_code)]` at crate level -- NOT FIXED (acceptable)
 
@@ -81,13 +56,14 @@ Every module in `passkms-windows` uses `unsafe` for COM/FFI interop. Scoping to 
 functions would add noise without meaningful safety improvement. The crate-level allow is
 appropriate for a COM interop crate.
 
-### L5. `CredentialStoreError::Kms` type-erases all KMS errors
+### L5. `CredentialStoreError::Kms` type-erases all KMS errors -- ACCEPTABLE
 **Category:** Error handling
 **Files:** `crates/passkms-core/src/credential_store.rs:39-40,55-61`
 
 The blanket `From<SdkError<E>>` routes all KMS errors into a single `Kms(Box<dyn Error>)`
-variant. Callers cannot programmatically distinguish throttling from access denied from key
-not found (except the one manual `NotFoundException` intercept in `get_signing_key`).
+variant. No callers currently need to distinguish error types beyond `NotFoundException`
+(already handled in `get_signing_key`). Adding structured variants without consumers would
+violate YAGNI. Error messages are preserved via Display for logging.
 
 ### L6. `windows-interface` version skew with `windows` crate -- NOT FIXABLE
 **Category:** Dependencies
@@ -96,30 +72,6 @@ not found (except the one manual `NotFoundException` intercept in `get_signing_k
 `windows-interface` is at 0.59 while `windows` and `windows-core` are at 0.62. Investigation
 confirmed 0.59.3 is the latest published version of `windows-interface`; the Microsoft
 `windows-*` ecosystem did not publish a 0.62 release for this crate. Not fixable by bumping.
-
-### L10. No MSRV specified in Cargo.toml
-**Category:** Rust conventions
-**Files:** `Cargo.toml`
-
-`rust-version` is not set in `workspace.package`. While acceptable when Nix manages the
-toolchain, specifying MSRV is conventional for Rust projects and helps downstream consumers.
-
-### L11. `wide_ptr_to_string` truncation is silent to callers
-**Category:** Robustness
-**Files:** `crates/passkms-windows/src/util.rs:20-33`
-
-When a wide string exceeds `MAX_WIDE_STRING_LEN` (4096), it is silently truncated with a
-`tracing::warn` log. The caller receives `Some(truncated_string)` with no indication the
-value was truncated. For WebAuthn RP/user names this limit is generous, but the function's
-contract is unclear.
-
-### L13. No `nix run` app output or rustdoc derivation
-**Category:** Nix / Ergonomics
-**Files:** `flake.nix`
-
-The flake does not define `apps` outputs, so `nix run .#passkms-server` does not work via
-the explicit apps mechanism. There is also no documentation build derivation for verifying
-doc comments or publishing API docs.
 
 ### L14. `const_cast` pattern in COM response building
 **Category:** Unsafe / Code quality
@@ -136,26 +88,30 @@ the cast technically permits it. This is a pragmatic compromise given the FFI bi
 | Severity | Total | Resolved | Remaining | Key themes |
 |----------|-------|----------|-----------|------------|
 | High | 3 | 2 | 1 | Request signing not verified |
-| Medium | 6 | 4 | 2 | Test infra, non-atomic sync |
-| Low | 15 | 6 | 9 | Privacy, performance, conventions |
+| Medium | 6 | 5 | 1 | Non-atomic credential sync |
+| Low | 15 | 10 | 5 | Privacy, deps, FFI (all acceptable/unfixable) |
 
 ### Resolved items
 
 - **H2** -- Removed dead `discoverable` field; all credentials are always discoverable
 - **H3** -- Replaced README template with actual project documentation
+- **M1** -- Introduced `CredentialBackend` trait; 13 unit tests with mock store
 - **M2** -- Added warn-level logging for swallowed KMS errors in allow-list flow
 - **M3** -- Added CTAP2_CBOR request type validation in COM plugin
 - **M4** -- Extracted shared `extract_rp_id`, `extract_client_data_hash`, `extract_credential_list` helpers
 - **M5** -- Introduced `CredentialId(String)` newtype with validation on construction
+- **L2** -- Concurrent credential metadata fetching with `futures::future::join_all`
 - **L4** -- Replaced all `len() as u32` casts with `len_as_u32()` using `u32::try_from`
 - **L7** -- Extracted `SIGN_COUNT` and `KEY_DELETION_PENDING_DAYS` named constants
 - **L8** -- Replaced `expect()` in `cose.rs` with `MissingCoordinate` error variant
 - **L9** -- Added `cargo audit` check to Nix flake using RustSec advisory-db
+- **L10** -- Added `rust-version = "1.75"` MSRV to workspace Cargo.toml
+- **L11** -- Reject oversized wide strings instead of silently truncating
 - **L12** -- Extracted shared `msvcFlags` binding in flake.nix
-- **L15** -- Summary table updated (this revision)
+- **L13** -- Added `nix run` apps output and rustdoc check derivation
+- **L15** -- Summary table updated
 
 ### Remaining priorities
 
 1. **H1** -- Implement operation request signature verification
-2. **M1** -- Introduce trait abstraction for KMS to enable unit testing
-3. **M6** -- Investigate atomic credential sync
+2. **M6** -- Investigate atomic credential sync
