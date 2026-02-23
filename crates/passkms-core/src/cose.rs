@@ -15,6 +15,10 @@ pub enum CoseConversionError {
     /// Failed to parse the DER-encoded SPKI public key.
     #[error("failed to parse DER SPKI public key: {0}")]
     InvalidSpki(#[from] p256::pkcs8::spki::Error),
+
+    /// Failed to extract EC point coordinates from the public key.
+    #[error("missing EC point coordinate")]
+    MissingCoordinate,
 }
 
 /// Convert a DER-encoded SPKI public key (as returned by KMS GetPublicKey)
@@ -26,24 +30,26 @@ pub enum CoseConversionError {
 /// 3. Builds a `coset::CoseKey` with EC2 P-256 parameters and ES256 algorithm
 pub fn spki_der_to_cose_key(der_bytes: &[u8]) -> Result<CoseKey, CoseConversionError> {
     let public_key = PublicKey::from_public_key_der(der_bytes)?;
-    Ok(p256_public_key_to_cose_key(&public_key))
+    p256_public_key_to_cose_key(&public_key)
 }
 
 /// Convert a `p256::PublicKey` to a COSE key.
-fn p256_public_key_to_cose_key(public_key: &PublicKey) -> CoseKey {
+fn p256_public_key_to_cose_key(
+    public_key: &PublicKey,
+) -> Result<CoseKey, CoseConversionError> {
     let encoded_point = public_key.to_encoded_point(false);
     let x = encoded_point
         .x()
-        .expect("uncompressed point has x")
+        .ok_or(CoseConversionError::MissingCoordinate)?
         .to_vec();
     let y = encoded_point
         .y()
-        .expect("uncompressed point has y")
+        .ok_or(CoseConversionError::MissingCoordinate)?
         .to_vec();
 
-    coset::CoseKeyBuilder::new_ec2_pub_key(iana::EllipticCurve::P_256, x, y)
+    Ok(coset::CoseKeyBuilder::new_ec2_pub_key(iana::EllipticCurve::P_256, x, y)
         .algorithm(iana::Algorithm::ES256)
-        .build()
+        .build())
 }
 
 /// Extract the raw x and y coordinates from a DER-encoded SPKI public key.
@@ -53,8 +59,12 @@ fn p256_public_key_to_cose_key(public_key: &PublicKey) -> CoseKey {
 fn spki_der_to_coordinates(der_bytes: &[u8]) -> Result<([u8; 32], [u8; 32]), CoseConversionError> {
     let public_key = PublicKey::from_public_key_der(der_bytes)?;
     let encoded_point = public_key.to_encoded_point(false);
-    let x = encoded_point.x().expect("uncompressed point has x");
-    let y = encoded_point.y().expect("uncompressed point has y");
+    let x = encoded_point
+        .x()
+        .ok_or(CoseConversionError::MissingCoordinate)?;
+    let y = encoded_point
+        .y()
+        .ok_or(CoseConversionError::MissingCoordinate)?;
 
     let mut x_arr = [0u8; 32];
     let mut y_arr = [0u8; 32];
