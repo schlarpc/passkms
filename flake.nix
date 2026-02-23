@@ -188,17 +188,20 @@
           });
 
           # Run clippy (Windows cross-compiled crate)
+          # Reuses the same base args and dependency artifacts as the Windows build
+          # to avoid compiling Windows dependencies twice.
           windows-clippy =
             let
-              windowsClippyArgs = (commonArgs // {
-                pname = "passkms-windows-clippy";
+              windowsBaseArgs = (commonArgs // {
+                pname = "passkms-windows";
                 cargoExtraArgs = "-p passkms-windows";
                 nativeBuildInputs = crossBuildInputsFor system;
-                cargoClippyExtraArgs = "-- --deny warnings";
               }) // msvcEnvFor system;
+              windowsCargoArtifacts = craneLib.buildDepsOnly windowsBaseArgs;
             in
-            craneLib.cargoClippy (windowsClippyArgs // {
-              cargoArtifacts = craneLib.buildDepsOnly windowsClippyArgs;
+            craneLib.cargoClippy (windowsBaseArgs // {
+              cargoArtifacts = windowsCargoArtifacts;
+              cargoClippyExtraArgs = "-- --deny warnings";
             });
 
           # Check formatting
