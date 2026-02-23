@@ -861,7 +861,10 @@ mod tests {
         let responses = auth.get_assertion(&request).await.unwrap();
         assert_eq!(responses.len(), 2);
 
-        let ids: Vec<&[u8]> = responses.iter().map(|r| r.credential_id.as_slice()).collect();
+        let ids: Vec<&[u8]> = responses
+            .iter()
+            .map(|r| r.credential_id.as_slice())
+            .collect();
         assert!(ids.contains(&reg1.credential_id.as_slice()));
         assert!(ids.contains(&reg2.credential_id.as_slice()));
 
