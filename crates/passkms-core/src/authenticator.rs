@@ -778,4 +778,185 @@ mod tests {
             "UP flag should not be set"
         );
     }
+
+    #[tokio::test]
+    async fn exclude_list_skips_non_utf8_credential_ids() {
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        // Register a credential
+        let _reg = auth
+            .make_credential(&registration_request(rp_id))
+            .await
+            .unwrap();
+
+        // Exclude list with only invalid UTF-8 should not prevent registration
+        let mut request = registration_request(rp_id);
+        request.exclude_list = vec![vec![0xFF, 0xFE]];
+
+        let result = auth.make_credential(&request).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn allow_list_skips_non_utf8_credential_ids() {
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        // Register a credential
+        let reg = auth
+            .make_credential(&registration_request(rp_id))
+            .await
+            .unwrap();
+
+        // Allow list with one invalid and one valid entry
+        let request = GetAssertionRequest {
+            rp_id: rp_id.to_string(),
+            client_data_hash: [0u8; 32],
+            user_presence: true,
+            allow_list: vec![vec![0xFF], reg.credential_id.clone()],
+        };
+
+        let responses = auth.get_assertion(&request).await.unwrap();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0].credential_id, reg.credential_id);
+    }
+
+    #[tokio::test]
+    async fn allow_list_only_non_utf8_returns_no_credential() {
+        let auth = make_authenticator();
+
+        let request = GetAssertionRequest {
+            rp_id: "example.com".to_string(),
+            client_data_hash: [0u8; 32],
+            user_presence: false,
+            allow_list: vec![vec![0xFF, 0xFE]],
+        };
+
+        let result = auth.get_assertion(&request).await;
+        assert!(matches!(result, Err(AuthenticatorError::NoCredential)));
+    }
+
+    #[tokio::test]
+    async fn discoverable_multiple_credentials_returns_all() {
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        // Register two credentials for the same RP
+        let mut req1 = registration_request(rp_id);
+        req1.user_handle = b"user-1".to_vec();
+        let reg1 = auth.make_credential(&req1).await.unwrap();
+
+        let mut req2 = registration_request(rp_id);
+        req2.user_handle = b"user-2".to_vec();
+        let reg2 = auth.make_credential(&req2).await.unwrap();
+
+        let request = GetAssertionRequest {
+            rp_id: rp_id.to_string(),
+            client_data_hash: [3u8; 32],
+            user_presence: true,
+            allow_list: vec![], // discoverable
+        };
+
+        let responses = auth.get_assertion(&request).await.unwrap();
+        assert_eq!(responses.len(), 2);
+
+        let ids: Vec<&[u8]> = responses.iter().map(|r| r.credential_id.as_slice()).collect();
+        assert!(ids.contains(&reg1.credential_id.as_slice()));
+        assert!(ids.contains(&reg2.credential_id.as_slice()));
+
+        // Each response should have a user handle
+        assert!(responses.iter().all(|r| r.user_handle.is_some()));
+    }
+
+    #[tokio::test]
+    async fn delete_credential_removes_from_discovery() {
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        let reg = auth
+            .make_credential(&registration_request(rp_id))
+            .await
+            .unwrap();
+        let cred_id = CredentialId::from_bytes(&reg.credential_id).unwrap();
+
+        // Verify credential exists
+        let creds = auth.store().discover_credentials(rp_id).await.unwrap();
+        assert!(creds.iter().any(|c| c.key_id == cred_id));
+
+        // Delete it
+        auth.store()
+            .delete_credential(rp_id, &cred_id)
+            .await
+            .unwrap();
+
+        // Verify credential is gone
+        let creds = auth.store().discover_credentials(rp_id).await.unwrap();
+        assert!(!creds.iter().any(|c| c.key_id == cred_id));
+    }
+
+    #[tokio::test]
+    async fn list_all_credentials_across_rps() {
+        let auth = make_authenticator();
+
+        let reg_a = auth
+            .make_credential(&registration_request("rp-a.com"))
+            .await
+            .unwrap();
+        let reg_b = auth
+            .make_credential(&registration_request("rp-b.com"))
+            .await
+            .unwrap();
+
+        let all = auth.store().list_all_credentials().await.unwrap();
+        assert_eq!(all.len(), 2);
+
+        let ids: Vec<Vec<u8>> = all.iter().map(|c| c.key_id.as_bytes().to_vec()).collect();
+        assert!(ids.contains(&reg_a.credential_id));
+        assert!(ids.contains(&reg_b.credential_id));
+    }
+
+    #[tokio::test]
+    async fn credential_id_from_bytes_rejects_invalid_utf8() {
+        assert!(CredentialId::from_bytes(&[0xFF, 0xFE]).is_none());
+        assert!(CredentialId::from_bytes(b"valid-string").is_some());
+        assert!(CredentialId::from_bytes(&[]).is_some()); // empty is valid UTF-8
+    }
+
+    #[tokio::test]
+    async fn attestation_object_contains_required_fields() {
+        let auth = make_authenticator();
+        let response = auth
+            .make_credential(&registration_request("example.com"))
+            .await
+            .unwrap();
+
+        let att_obj: ciborium::Value =
+            ciborium::de::from_reader(response.attestation_object.as_slice()).unwrap();
+
+        if let ciborium::Value::Map(entries) = &att_obj {
+            // Check fmt
+            let fmt = entries
+                .iter()
+                .find(|(k, _)| k == &ciborium::Value::Text("fmt".to_string()))
+                .map(|(_, v)| v);
+            assert_eq!(fmt, Some(&ciborium::Value::Text("none".to_string())));
+
+            // Check attStmt is an empty map
+            let att_stmt = entries
+                .iter()
+                .find(|(k, _)| k == &ciborium::Value::Text("attStmt".to_string()))
+                .map(|(_, v)| v);
+            assert_eq!(att_stmt, Some(&ciborium::Value::Map(vec![])));
+
+            // Check authData is bytes
+            let auth_data = entries
+                .iter()
+                .find(|(k, _)| k == &ciborium::Value::Text("authData".to_string()))
+                .map(|(_, v)| v);
+            assert!(matches!(auth_data, Some(ciborium::Value::Bytes(_))));
+        } else {
+            panic!("attestation object should be a CBOR map");
+        }
+    }
 }
