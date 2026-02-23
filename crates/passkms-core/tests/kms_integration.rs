@@ -73,7 +73,6 @@ async fn test_full_registration_and_authentication_flow() {
         user_handle: b"test-user-id".to_vec(),
         user_name: Some("testuser".to_string()),
         user_display_name: Some("Test User".to_string()),
-        discoverable: true,
         user_presence: true,
         exclude_list: vec![],
         pub_key_cred_params: vec![-7], // ES256

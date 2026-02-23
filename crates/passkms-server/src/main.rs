@@ -59,7 +59,6 @@ async fn register(authenticator: &Authenticator, rp_id: &str, user_name: &str) {
         user_handle: user_name.as_bytes().to_vec(),
         user_name: Some(user_name.to_string()),
         user_display_name: Some(user_name.to_string()),
-        discoverable: true,
         user_presence: false, // No user presence verification in headless mode
         exclude_list: vec![],
         pub_key_cred_params: vec![-7], // ES256

@@ -48,6 +48,10 @@ pub enum AuthenticatorError {
 }
 
 /// Parameters for a makeCredential operation.
+///
+/// All credentials created by passkms are always discoverable (resident).
+/// The user handle and metadata are stored as KMS key tags, enabling
+/// credential discovery via `get_assertion` with an empty allow list.
 #[derive(Debug)]
 pub struct MakeCredentialRequest {
     /// SHA-256 hash of the client data JSON (computed by the client/platform).
@@ -62,8 +66,6 @@ pub struct MakeCredentialRequest {
     pub user_name: Option<String>,
     /// User display name.
     pub user_display_name: Option<String>,
-    /// Whether to create a discoverable (resident) credential.
-    pub discoverable: bool,
     /// Whether user presence has been verified by the platform.
     /// When true, the UP flag is set in authenticator data.
     pub user_presence: bool,

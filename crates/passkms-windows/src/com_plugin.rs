@@ -158,11 +158,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
         let user_name = wide_ptr_to_string(user_info.pwszName);
         let user_display_name = wide_ptr_to_string(user_info.pwszDisplayName);
 
-        let discoverable = decoded_ref
-            .pAuthenticatorOptions
-            .as_ref()
-            .is_some_and(|opts| opts.lRequireResidentKey > 0);
-
         let rp_name = if decoded_ref.pRpInformation.is_null() {
             None
         } else {
@@ -215,7 +210,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             user_handle_len = user_handle.len(),
             user_name = ?user_name,
             display_name = ?user_display_name,
-            discoverable,
             rp_name = ?rp_name,
             exclude_list_len = exclude_list.len(),
             "decoded MakeCredential fields"
@@ -228,7 +222,6 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
             user_handle,
             user_name: user_name.clone(),
             user_display_name: user_display_name.clone(),
-            discoverable,
             user_presence: true, // Platform handles UP via credential picker
             exclude_list,
             pub_key_cred_params,
