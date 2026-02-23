@@ -16,6 +16,11 @@ use crate::util::{len_as_u32, wide_nul, wide_ptr_to_string};
 /// Prevents indefinite blocking if KMS is unreachable.
 const KMS_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Maximum accepted byte length for fields extracted from decoded COM requests.
+/// Rejects clearly bogus lengths before constructing slices with `from_raw_parts`.
+/// 1 MB is generous for any WebAuthn field; real values are typically < 1 KB.
+const MAX_FIELD_BYTES: u32 = 1024 * 1024;
+
 /// Version constants for WebAuthn COM structs.
 /// These must match the versions expected by `webauthn.dll`'s encode functions.
 const WEBAUTHN_CREDENTIAL_ATTESTATION_VERSION: u32 = 8;
@@ -29,6 +34,10 @@ const WEBAUTHN_CREDENTIAL_VERSION: u32 = 1;
 unsafe fn extract_rp_id(pb_rp_id: *const u8, cb_rp_id: u32) -> Result<String, HRESULT> {
     if pb_rp_id.is_null() {
         tracing::error!("pbRpId is null in decoded request");
+        return Err(windows::Win32::Foundation::E_INVALIDARG);
+    }
+    if cb_rp_id > MAX_FIELD_BYTES {
+        tracing::error!(len = cb_rp_id, "RP ID length exceeds maximum");
         return Err(windows::Win32::Foundation::E_INVALIDARG);
     }
     match std::str::from_utf8(std::slice::from_raw_parts(pb_rp_id, cb_rp_id as usize)) {
@@ -49,6 +58,10 @@ unsafe fn extract_rp_id(pb_rp_id: *const u8, cb_rp_id: u32) -> Result<String, HR
 unsafe fn extract_client_data_hash(pb_hash: *const u8, cb_hash: u32) -> Result<[u8; 32], HRESULT> {
     if pb_hash.is_null() {
         tracing::error!("pbClientDataHash is null in decoded request");
+        return Err(windows::Win32::Foundation::E_INVALIDARG);
+    }
+    if cb_hash > MAX_FIELD_BYTES {
+        tracing::error!(len = cb_hash, "client data hash length exceeds maximum");
         return Err(windows::Win32::Foundation::E_INVALIDARG);
     }
     let slice = std::slice::from_raw_parts(pb_hash, cb_hash as usize);
@@ -89,6 +102,9 @@ unsafe fn extract_credential_list(
         }
         let id = if cred.pbId.is_null() {
             Vec::new()
+        } else if cred.cbId > MAX_FIELD_BYTES {
+            tracing::warn!(index = i, len = cred.cbId, "credential ID length exceeds maximum, skipping");
+            continue;
         } else {
             std::slice::from_raw_parts(cred.pbId, cred.cbId as usize).to_vec()
         };
@@ -210,6 +226,10 @@ impl IPluginAuthenticator_Impl for PluginAuthenticator_Impl {
 
         let user_handle = if user_info.pbId.is_null() && user_info.cbId > 0 {
             tracing::error!("user pbId is null with non-zero cbId");
+            WebAuthNFreeDecodedMakeCredentialRequest(decoded);
+            return windows::Win32::Foundation::E_INVALIDARG;
+        } else if user_info.cbId > MAX_FIELD_BYTES {
+            tracing::error!(len = user_info.cbId, "user handle length exceeds maximum");
             WebAuthNFreeDecodedMakeCredentialRequest(decoded);
             return windows::Win32::Foundation::E_INVALIDARG;
         } else if user_info.pbId.is_null() {
