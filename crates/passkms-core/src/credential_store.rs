@@ -128,6 +128,56 @@ pub struct CredentialMetadata {
     pub rp_id: Option<String>,
 }
 
+/// Trait abstracting credential storage operations.
+///
+/// This enables testing the `Authenticator` with mock implementations
+/// that don't require a real AWS KMS backend.
+pub trait CredentialBackend: Clone + Send + Sync {
+    /// The signer type returned by credential operations.
+    type Signer: async_signature::AsyncSigner<ecdsa::Signature<p256::NistP256>> + Clone + Send;
+
+    /// Create a new credential, returning the credential ID and a signer bound to the new key.
+    fn create_credential(
+        &self,
+        rp_id: &str,
+        user_handle: &[u8],
+        user_name: Option<&str>,
+        display_name: Option<&str>,
+    ) -> impl std::future::Future<Output = Result<(CredentialId, Self::Signer), CredentialStoreError>>
+           + Send;
+
+    /// Get a signer for an existing credential, identified by RP ID and credential ID.
+    fn get_signing_key(
+        &self,
+        rp_id: &str,
+        credential_id: &CredentialId,
+    ) -> impl std::future::Future<Output = Result<Self::Signer, CredentialStoreError>> + Send;
+
+    /// Discover all credentials for a given RP ID.
+    fn discover_credentials(
+        &self,
+        rp_id: &str,
+    ) -> impl std::future::Future<Output = Result<Vec<CredentialMetadata>, CredentialStoreError>> + Send;
+
+    /// Get the COSE-encoded public key for a credential.
+    fn get_public_key(
+        &self,
+        key_id: &CredentialId,
+    ) -> impl std::future::Future<Output = Result<coset::CoseKey, CredentialStoreError>> + Send;
+
+    /// Delete a credential (schedule key for deletion and remove alias).
+    fn delete_credential(
+        &self,
+        rp_id: &str,
+        credential_id: &CredentialId,
+    ) -> impl std::future::Future<Output = Result<(), CredentialStoreError>> + Send;
+
+    /// List all credentials across all RPs.
+    fn list_all_credentials(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<CredentialMetadata>, CredentialStoreError>> + Send;
+}
+
 /// Manages FIDO2 credentials backed by AWS KMS keys.
 ///
 /// Each credential is a KMS ECC_NIST_P256 signing key. Metadata is stored
@@ -453,6 +503,55 @@ impl CredentialStore {
         }
 
         Ok(metadata)
+    }
+}
+
+impl CredentialBackend for CredentialStore {
+    type Signer = crate::KmsSigner;
+
+    async fn create_credential(
+        &self,
+        rp_id: &str,
+        user_handle: &[u8],
+        user_name: Option<&str>,
+        display_name: Option<&str>,
+    ) -> Result<(CredentialId, Self::Signer), CredentialStoreError> {
+        self.create_credential(rp_id, user_handle, user_name, display_name)
+            .await
+    }
+
+    async fn get_signing_key(
+        &self,
+        rp_id: &str,
+        credential_id: &CredentialId,
+    ) -> Result<Self::Signer, CredentialStoreError> {
+        self.get_signing_key(rp_id, credential_id).await
+    }
+
+    async fn discover_credentials(
+        &self,
+        rp_id: &str,
+    ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
+        self.discover_credentials(rp_id).await
+    }
+
+    async fn get_public_key(
+        &self,
+        key_id: &CredentialId,
+    ) -> Result<coset::CoseKey, CredentialStoreError> {
+        self.get_public_key(key_id).await
+    }
+
+    async fn delete_credential(
+        &self,
+        rp_id: &str,
+        credential_id: &CredentialId,
+    ) -> Result<(), CredentialStoreError> {
+        self.delete_credential(rp_id, credential_id).await
+    }
+
+    async fn list_all_credentials(&self) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
+        self.list_all_credentials().await
     }
 }
 

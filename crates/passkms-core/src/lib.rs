@@ -8,6 +8,6 @@ pub use authenticator::{
     MakeCredentialRequest, MakeCredentialResponse, PASSKMS_AAGUID,
 };
 pub use credential_store::{
-    CredentialId, CredentialMetadata, CredentialStore, CredentialStoreError,
+    CredentialBackend, CredentialId, CredentialMetadata, CredentialStore, CredentialStoreError,
 };
 pub use kms_signer::KmsSigner;

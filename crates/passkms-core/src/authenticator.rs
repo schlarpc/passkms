@@ -7,7 +7,7 @@
 use async_signature::AsyncSigner;
 use passkey_types::ctap2::{Aaguid, AttestedCredentialData, AuthenticatorData, Flags};
 
-use crate::credential_store::{CredentialId, CredentialStore};
+use crate::credential_store::{CredentialBackend, CredentialId, CredentialStore};
 
 /// Sign counter value for authenticator data.
 ///
@@ -124,20 +124,22 @@ pub struct GetAssertionResponse {
 
 /// The main authenticator that coordinates credential management and signing.
 ///
-/// Uses a `CredentialStore` for KMS key management and performs FIDO2
-/// authenticator operations (makeCredential, getAssertion).
+/// Uses a [`CredentialBackend`] for key management and performs FIDO2
+/// authenticator operations (makeCredential, getAssertion). Defaults to
+/// [`CredentialStore`] (AWS KMS) but can be parameterized with a mock
+/// backend for testing.
 #[derive(Clone)]
-pub struct Authenticator {
-    store: CredentialStore,
+pub struct Authenticator<S = CredentialStore> {
+    store: S,
     /// AAGUID identifying this authenticator type.
     aaguid: Aaguid,
 }
 
-impl Authenticator {
+impl<S: CredentialBackend> Authenticator<S> {
     /// Create a new authenticator with the given credential store.
     ///
     /// Uses the passkms AAGUID to identify this authenticator model.
-    pub fn new(store: CredentialStore) -> Self {
+    pub fn new(store: S) -> Self {
         Self {
             store,
             aaguid: Aaguid::from(PASSKMS_AAGUID),
@@ -145,7 +147,7 @@ impl Authenticator {
     }
 
     /// Access the underlying credential store.
-    pub fn store(&self) -> &CredentialStore {
+    pub fn store(&self) -> &S {
         &self.store
     }
 
@@ -249,47 +251,47 @@ impl Authenticator {
         request: &GetAssertionRequest,
     ) -> Result<Vec<GetAssertionResponse>, AuthenticatorError> {
         // 1. Find matching credentials (with signers for the non-discoverable flow)
-        let matches: Vec<(CredentialId, Option<Vec<u8>>, Option<crate::KmsSigner>)> =
-            if request.allow_list.is_empty() {
-                // Discoverable flow: enumerate all credentials for this RP
-                let discovered = self.store.discover_credentials(&request.rp_id).await?;
-                if discovered.is_empty() {
-                    return Err(AuthenticatorError::NoCredential);
-                }
-                discovered
-                    .into_iter()
-                    .map(|m| (m.key_id, m.user_handle, None))
-                    .collect()
-            } else {
-                // Non-discoverable flow: try each credential in the allow list
-                let mut found = Vec::new();
-                for cred_id_bytes in &request.allow_list {
-                    let Some(cred_id) = CredentialId::from_bytes(cred_id_bytes) else {
+        type Match<T> = (CredentialId, Option<Vec<u8>>, Option<T>);
+        let matches: Vec<Match<S::Signer>> = if request.allow_list.is_empty() {
+            // Discoverable flow: enumerate all credentials for this RP
+            let discovered = self.store.discover_credentials(&request.rp_id).await?;
+            if discovered.is_empty() {
+                return Err(AuthenticatorError::NoCredential);
+            }
+            discovered
+                .into_iter()
+                .map(|m| (m.key_id, m.user_handle, None))
+                .collect()
+        } else {
+            // Non-discoverable flow: try each credential in the allow list
+            let mut found = Vec::new();
+            for cred_id_bytes in &request.allow_list {
+                let Some(cred_id) = CredentialId::from_bytes(cred_id_bytes) else {
+                    tracing::warn!(
+                        credential_id_hex = %hex::encode(cred_id_bytes),
+                        "skipping non-UTF-8 credential ID in allow list"
+                    );
+                    continue;
+                };
+                match self.store.get_signing_key(&request.rp_id, &cred_id).await {
+                    Ok(signer) => {
+                        found.push((cred_id, None, Some(signer)));
+                    }
+                    Err(e) => {
                         tracing::warn!(
-                            credential_id_hex = %hex::encode(cred_id_bytes),
-                            "skipping non-UTF-8 credential ID in allow list"
+                            credential_id = %cred_id,
+                            error = %e,
+                            "failed to look up credential in allow list, skipping"
                         );
                         continue;
-                    };
-                    match self.store.get_signing_key(&request.rp_id, &cred_id).await {
-                        Ok(signer) => {
-                            found.push((cred_id, None, Some(signer)));
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                credential_id = %cred_id,
-                                error = %e,
-                                "failed to look up credential in allow list, skipping"
-                            );
-                            continue;
-                        }
                     }
                 }
-                if found.is_empty() {
-                    return Err(AuthenticatorError::NoCredential);
-                }
-                found
-            };
+            }
+            if found.is_empty() {
+                return Err(AuthenticatorError::NoCredential);
+            }
+            found
+        };
 
         // 2. For each match, build assertion response
         let mut responses = Vec::new();
@@ -322,5 +324,461 @@ impl Authenticator {
         }
 
         Ok(responses)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::credential_store::{CredentialMetadata, CredentialStoreError};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    /// In-memory P-256 signer for testing.
+    #[derive(Clone)]
+    struct MockSigner(p256::ecdsa::SigningKey);
+
+    impl async_signature::AsyncSigner<ecdsa::Signature<p256::NistP256>> for MockSigner {
+        async fn sign_async(
+            &self,
+            msg: &[u8],
+        ) -> Result<ecdsa::Signature<p256::NistP256>, signature::Error> {
+            use signature::Signer;
+            self.0.try_sign(msg)
+        }
+    }
+
+    struct MockCredential {
+        rp_id: String,
+        user_handle: Vec<u8>,
+        user_name: Option<String>,
+        display_name: Option<String>,
+        signing_key: p256::ecdsa::SigningKey,
+    }
+
+    /// In-memory credential store for testing authenticator logic without KMS.
+    #[derive(Clone)]
+    struct MockStore {
+        credentials: Arc<Mutex<HashMap<String, MockCredential>>>,
+        next_id: Arc<Mutex<u32>>,
+    }
+
+    impl MockStore {
+        fn new() -> Self {
+            Self {
+                credentials: Arc::new(Mutex::new(HashMap::new())),
+                next_id: Arc::new(Mutex::new(1)),
+            }
+        }
+    }
+
+    impl CredentialBackend for MockStore {
+        type Signer = MockSigner;
+
+        async fn create_credential(
+            &self,
+            rp_id: &str,
+            user_handle: &[u8],
+            user_name: Option<&str>,
+            display_name: Option<&str>,
+        ) -> Result<(CredentialId, Self::Signer), CredentialStoreError> {
+            let mut id_counter = self.next_id.lock().unwrap();
+            let key_id = format!("mock-key-{}", *id_counter);
+            *id_counter += 1;
+
+            let signing_key = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+            let signer = MockSigner(signing_key.clone());
+
+            self.credentials.lock().unwrap().insert(
+                key_id.clone(),
+                MockCredential {
+                    rp_id: rp_id.to_string(),
+                    user_handle: user_handle.to_vec(),
+                    user_name: user_name.map(String::from),
+                    display_name: display_name.map(String::from),
+                    signing_key,
+                },
+            );
+            Ok((CredentialId::new(key_id), signer))
+        }
+
+        async fn get_signing_key(
+            &self,
+            rp_id: &str,
+            credential_id: &CredentialId,
+        ) -> Result<Self::Signer, CredentialStoreError> {
+            let creds = self.credentials.lock().unwrap();
+            let cred = creds
+                .get(credential_id.as_str())
+                .filter(|c| c.rp_id == rp_id)
+                .ok_or_else(|| CredentialStoreError::NotFound(credential_id.to_string()))?;
+            Ok(MockSigner(cred.signing_key.clone()))
+        }
+
+        async fn discover_credentials(
+            &self,
+            rp_id: &str,
+        ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
+            let creds = self.credentials.lock().unwrap();
+            Ok(creds
+                .iter()
+                .filter(|(_, c)| c.rp_id == rp_id)
+                .map(|(id, c)| CredentialMetadata {
+                    key_id: CredentialId::new(id.clone()),
+                    user_handle: Some(c.user_handle.clone()),
+                    display_name: c.display_name.clone(),
+                    user_name: c.user_name.clone(),
+                    rp_id: Some(c.rp_id.clone()),
+                })
+                .collect())
+        }
+
+        async fn get_public_key(
+            &self,
+            key_id: &CredentialId,
+        ) -> Result<coset::CoseKey, CredentialStoreError> {
+            use p256::pkcs8::EncodePublicKey;
+            let creds = self.credentials.lock().unwrap();
+            let cred = creds
+                .get(key_id.as_str())
+                .ok_or_else(|| CredentialStoreError::NotFound(key_id.to_string()))?;
+            let der = cred
+                .signing_key
+                .verifying_key()
+                .to_public_key_der()
+                .map_err(|e| CredentialStoreError::Internal(e.to_string()))?;
+            crate::cose::spki_der_to_cose_key(der.as_ref()).map_err(CredentialStoreError::from)
+        }
+
+        async fn delete_credential(
+            &self,
+            _rp_id: &str,
+            credential_id: &CredentialId,
+        ) -> Result<(), CredentialStoreError> {
+            self.credentials
+                .lock()
+                .unwrap()
+                .remove(credential_id.as_str());
+            Ok(())
+        }
+
+        async fn list_all_credentials(
+            &self,
+        ) -> Result<Vec<CredentialMetadata>, CredentialStoreError> {
+            let creds = self.credentials.lock().unwrap();
+            Ok(creds
+                .iter()
+                .map(|(id, c)| CredentialMetadata {
+                    key_id: CredentialId::new(id.clone()),
+                    user_handle: Some(c.user_handle.clone()),
+                    display_name: c.display_name.clone(),
+                    user_name: c.user_name.clone(),
+                    rp_id: Some(c.rp_id.clone()),
+                })
+                .collect())
+        }
+    }
+
+    fn make_authenticator() -> Authenticator<MockStore> {
+        Authenticator::new(MockStore::new())
+    }
+
+    fn registration_request(rp_id: &str) -> MakeCredentialRequest {
+        MakeCredentialRequest {
+            client_data_hash: [0u8; 32],
+            rp_id: rp_id.to_string(),
+            rp_name: Some("Test RP".to_string()),
+            user_handle: b"user-1".to_vec(),
+            user_name: Some("alice".to_string()),
+            user_display_name: Some("Alice".to_string()),
+            user_presence: true,
+            exclude_list: vec![],
+            pub_key_cred_params: vec![-7],
+        }
+    }
+
+    #[tokio::test]
+    async fn make_credential_returns_valid_attestation() {
+        let auth = make_authenticator();
+        let response = auth
+            .make_credential(&registration_request("example.com"))
+            .await
+            .unwrap();
+
+        assert!(!response.credential_id.is_empty());
+        // Auth data includes 37-byte base + attested credential data
+        assert!(response.auth_data_bytes.len() > 37);
+
+        // Verify attestation object is valid CBOR with "none" format
+        let att_obj: ciborium::Value =
+            ciborium::de::from_reader(response.attestation_object.as_slice()).unwrap();
+        if let ciborium::Value::Map(entries) = &att_obj {
+            let fmt = entries
+                .iter()
+                .find(|(k, _)| k == &ciborium::Value::Text("fmt".to_string()))
+                .map(|(_, v)| v);
+            assert_eq!(fmt, Some(&ciborium::Value::Text("none".to_string())));
+        } else {
+            panic!("attestation object should be a CBOR map");
+        }
+    }
+
+    #[tokio::test]
+    async fn make_credential_rejects_unsupported_algorithm() {
+        let auth = make_authenticator();
+        let mut request = registration_request("example.com");
+        request.pub_key_cred_params = vec![-257]; // RS256, not supported
+
+        let result = auth.make_credential(&request).await;
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::UnsupportedAlgorithm)
+        ));
+    }
+
+    #[tokio::test]
+    async fn make_credential_allows_empty_algorithm_list() {
+        let auth = make_authenticator();
+        let mut request = registration_request("example.com");
+        request.pub_key_cred_params = vec![]; // empty = any algorithm
+
+        let result = auth.make_credential(&request).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn make_credential_rejects_excluded_credential() {
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        // Register a credential first
+        let reg = auth
+            .make_credential(&registration_request(rp_id))
+            .await
+            .unwrap();
+
+        // Try to register again with exclude list containing the first credential
+        let mut request = registration_request(rp_id);
+        request.exclude_list = vec![reg.credential_id.clone()];
+
+        let result = auth.make_credential(&request).await;
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::CredentialExcluded)
+        ));
+    }
+
+    #[tokio::test]
+    async fn make_credential_ignores_excluded_credential_for_different_rp() {
+        let auth = make_authenticator();
+
+        // Register for one RP
+        let reg = auth
+            .make_credential(&registration_request("rp-a.com"))
+            .await
+            .unwrap();
+
+        // Exclude list with same credential but different RP should succeed
+        let mut request = registration_request("rp-b.com");
+        request.exclude_list = vec![reg.credential_id.clone()];
+
+        let result = auth.make_credential(&request).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_assertion_with_allow_list() {
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        let reg = auth
+            .make_credential(&registration_request(rp_id))
+            .await
+            .unwrap();
+
+        let request = GetAssertionRequest {
+            rp_id: rp_id.to_string(),
+            client_data_hash: [1u8; 32],
+            user_presence: true,
+            allow_list: vec![reg.credential_id.clone()],
+        };
+
+        let responses = auth.get_assertion(&request).await.unwrap();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0].credential_id, reg.credential_id);
+        assert_eq!(responses[0].auth_data_bytes.len(), 37);
+        assert!(!responses[0].signature.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_assertion_discoverable() {
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        let reg = auth
+            .make_credential(&registration_request(rp_id))
+            .await
+            .unwrap();
+
+        let request = GetAssertionRequest {
+            rp_id: rp_id.to_string(),
+            client_data_hash: [2u8; 32],
+            user_presence: true,
+            allow_list: vec![], // empty = discoverable flow
+        };
+
+        let responses = auth.get_assertion(&request).await.unwrap();
+        assert!(!responses.is_empty());
+        assert!(responses
+            .iter()
+            .any(|r| r.credential_id == reg.credential_id));
+        // Discoverable flow should include user_handle
+        assert!(responses[0].user_handle.is_some());
+    }
+
+    #[tokio::test]
+    async fn get_assertion_no_credential_returns_error() {
+        let auth = make_authenticator();
+
+        let request = GetAssertionRequest {
+            rp_id: "nonexistent.com".to_string(),
+            client_data_hash: [0u8; 32],
+            user_presence: false,
+            allow_list: vec![b"fake-key-id".to_vec()],
+        };
+
+        let result = auth.get_assertion(&request).await;
+        assert!(matches!(result, Err(AuthenticatorError::NoCredential)));
+    }
+
+    #[tokio::test]
+    async fn get_assertion_discoverable_no_credentials_returns_error() {
+        let auth = make_authenticator();
+
+        let request = GetAssertionRequest {
+            rp_id: "nonexistent.com".to_string(),
+            client_data_hash: [0u8; 32],
+            user_presence: false,
+            allow_list: vec![],
+        };
+
+        let result = auth.get_assertion(&request).await;
+        assert!(matches!(result, Err(AuthenticatorError::NoCredential)));
+    }
+
+    #[tokio::test]
+    async fn get_assertion_wrong_rp_returns_error() {
+        let auth = make_authenticator();
+
+        let reg = auth
+            .make_credential(&registration_request("rp-a.com"))
+            .await
+            .unwrap();
+
+        // Try to authenticate with the credential against a different RP
+        let request = GetAssertionRequest {
+            rp_id: "rp-b.com".to_string(),
+            client_data_hash: [0u8; 32],
+            user_presence: false,
+            allow_list: vec![reg.credential_id.clone()],
+        };
+
+        let result = auth.get_assertion(&request).await;
+        assert!(matches!(result, Err(AuthenticatorError::NoCredential)));
+    }
+
+    #[tokio::test]
+    async fn signature_is_valid_ecdsa() {
+        use p256::ecdsa::signature::hazmat::PrehashVerifier;
+        use p256::ecdsa::VerifyingKey;
+        use sha2::{Digest, Sha256};
+
+        let auth = make_authenticator();
+        let rp_id = "example.com";
+
+        let reg = auth
+            .make_credential(&registration_request(rp_id))
+            .await
+            .unwrap();
+
+        let client_data_hash = [42u8; 32];
+        let assertion_req = GetAssertionRequest {
+            rp_id: rp_id.to_string(),
+            client_data_hash,
+            user_presence: true,
+            allow_list: vec![reg.credential_id.clone()],
+        };
+
+        let assertions = auth.get_assertion(&assertion_req).await.unwrap();
+        let assertion = &assertions[0];
+
+        // Get the public key from the store to verify
+        let cred_id = CredentialId::from_bytes(&reg.credential_id).unwrap();
+        let cose_key = auth.store().get_public_key(&cred_id).await.unwrap();
+
+        // Extract x, y from the COSE key
+        use coset::iana::Ec2KeyParameter;
+        use coset::iana::EnumI64;
+        let x_label = coset::Label::Int(Ec2KeyParameter::X.to_i64());
+        let y_label = coset::Label::Int(Ec2KeyParameter::Y.to_i64());
+        let x = cose_key
+            .params
+            .iter()
+            .find(|(l, _)| *l == x_label)
+            .and_then(|(_, v)| v.as_bytes())
+            .unwrap();
+        let y = cose_key
+            .params
+            .iter()
+            .find(|(l, _)| *l == y_label)
+            .and_then(|(_, v)| v.as_bytes())
+            .unwrap();
+
+        // Reconstruct the public key
+        let mut uncompressed = vec![0x04];
+        uncompressed.extend_from_slice(x);
+        uncompressed.extend_from_slice(y);
+        let public_key = p256::PublicKey::from_sec1_bytes(&uncompressed).expect("valid public key");
+        let verifying_key = VerifyingKey::from(public_key);
+
+        // The authenticator signs: authenticatorData || clientDataHash
+        let mut signed_data = assertion.auth_data_bytes.clone();
+        signed_data.extend_from_slice(&client_data_hash);
+
+        // KmsSigner prehashes before signing; the mock uses try_sign which
+        // hashes internally. Verify with the standard (non-prehash) verifier.
+        let sig =
+            p256::ecdsa::Signature::from_der(&assertion.signature).expect("valid DER signature");
+        let digest = Sha256::digest(&signed_data);
+        verifying_key
+            .verify_prehash(&digest, &sig)
+            .expect("signature should verify");
+    }
+
+    #[tokio::test]
+    async fn user_presence_flag_is_set() {
+        let auth = make_authenticator();
+        let mut request = registration_request("example.com");
+        request.user_presence = true;
+
+        let response = auth.make_credential(&request).await.unwrap();
+        // UP flag is bit 0 of the flags byte (byte index 32 in auth data)
+        assert!(
+            response.auth_data_bytes[32] & 0x01 != 0,
+            "UP flag should be set"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_presence_flag_unset_when_false() {
+        let auth = make_authenticator();
+        let mut request = registration_request("example.com");
+        request.user_presence = false;
+
+        let response = auth.make_credential(&request).await.unwrap();
+        assert!(
+            response.auth_data_bytes[32] & 0x01 == 0,
+            "UP flag should not be set"
+        );
     }
 }
