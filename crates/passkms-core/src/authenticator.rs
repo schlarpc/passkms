@@ -275,7 +275,14 @@ impl Authenticator {
                         Ok(signer) => {
                             found.push((cred_id.to_string(), None, Some(signer)));
                         }
-                        Err(_) => continue,
+                        Err(e) => {
+                            tracing::warn!(
+                                credential_id = %cred_id,
+                                error = %e,
+                                "failed to look up credential in allow list, skipping"
+                            );
+                            continue;
+                        }
                     }
                 }
                 if found.is_empty() {
