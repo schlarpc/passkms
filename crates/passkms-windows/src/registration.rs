@@ -55,7 +55,6 @@ pub fn is_registered() -> Result<bool, HRESULT> {
 ///
 /// Calls `WebAuthNPluginAddAuthenticator` and persists the returned operation
 /// signing public key to the Windows registry.
-#[allow(clippy::cast_possible_truncation)]
 pub fn register() -> Result<(), HRESULT> {
     tracing::debug!("building authenticator registration info");
     let name = wide_nul("passkms");
@@ -166,7 +165,6 @@ pub fn ensure_registered() -> Result<(), HRESULT> {
 ///
 /// Calls `WebAuthNPluginAuthenticatorAddCredentials` so credentials appear
 /// in the Windows passkey selection UI.
-#[allow(clippy::cast_possible_truncation)]
 pub fn sync_credentials(
     runtime: &tokio::runtime::Runtime,
     store: &passkms_core::CredentialStore,
