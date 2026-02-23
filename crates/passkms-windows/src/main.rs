@@ -218,8 +218,20 @@ unsafe fn message_loop() {
     use windows::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG};
 
     let mut msg = MSG::default();
-    // GetMessageW returns 0 on WM_QUIT, -1 on error
-    while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+    // GetMessageW returns:
+    //   > 0 for normal messages
+    //   0 for WM_QUIT
+    //   -1 on error
+    loop {
+        let ret = GetMessageW(&mut msg, None, 0, 0).0;
+        if ret == 0 {
+            // WM_QUIT received
+            break;
+        }
+        if ret == -1 {
+            tracing::error!("GetMessageW returned error (-1)");
+            break;
+        }
         // No translation/dispatch needed; COM handles its own messages
         // via the RPC infrastructure.
     }
