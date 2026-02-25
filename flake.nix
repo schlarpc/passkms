@@ -137,6 +137,24 @@
           pkgs.llvmPackages.llvm
         ];
 
+      # Generate ICO and PNG assets from SVG source
+      assetsFor = system:
+        let pkgs = pkgsFor system;
+        in pkgs.stdenvNoCC.mkDerivation {
+          name = "passkms-assets";
+          nativeBuildInputs = [ pkgs.imagemagick ];
+          buildCommand = ''
+            mkdir -p $out
+            svg=${./assets/logo.svg}
+            magick -background none -density 1024 "$svg" -resize 16x16 icon_16.png
+            magick -background none -density 1024 "$svg" -resize 32x32 icon_32.png
+            magick -background none -density 1024 "$svg" -resize 48x48 icon_48.png
+            magick -background none -density 1024 "$svg" -resize 256x256 icon_256.png
+            magick icon_16.png icon_32.png icon_48.png icon_256.png $out/logo.ico
+            magick -background none -density 1024 "$svg" -resize 50x50 $out/StoreLogo.png
+          '';
+        };
+
     in
     {
       # The main package outputs
@@ -159,14 +177,22 @@
             doCheck = false;
           });
 
+          passkms-assets = assetsFor system;
+
           # Windows cross-compiled build (with cached dependency artifacts)
           passkms-windows =
             let
+              assets = assetsFor system;
               windowsArgs = (commonArgs // {
                 pname = "passkms-windows";
                 cargoExtraArgs = "-p passkms-windows";
                 nativeBuildInputs = crossBuildInputsFor system;
                 doCheck = false;
+                preConfigure = ''
+                  mkdir -p assets crates/passkms-windows/Assets
+                  cp ${assets}/logo.ico assets/logo.ico
+                  cp ${assets}/StoreLogo.png crates/passkms-windows/Assets/StoreLogo.png
+                '';
               }) // msvcEnvFor system;
               windowsCargoArtifacts = craneLib.buildDepsOnly windowsArgs;
             in
@@ -200,10 +226,16 @@
           # to avoid compiling Windows dependencies twice.
           windows-clippy =
             let
+              assets = assetsFor system;
               windowsBaseArgs = (commonArgs // {
                 pname = "passkms-windows";
                 cargoExtraArgs = "-p passkms-windows";
                 nativeBuildInputs = crossBuildInputsFor system;
+                preConfigure = ''
+                  mkdir -p assets crates/passkms-windows/Assets
+                  cp ${assets}/logo.ico assets/logo.ico
+                  cp ${assets}/StoreLogo.png crates/passkms-windows/Assets/StoreLogo.png
+                '';
               }) // msvcEnvFor system;
               windowsCargoArtifacts = craneLib.buildDepsOnly windowsBaseArgs;
             in
