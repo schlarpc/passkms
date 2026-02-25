@@ -6,6 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+build = "build.rs"
 
 [dependencies]
 passkms-core.workspace = true
@@ -19,6 +20,10 @@ windows-core.workspace = true
 windows-interface.workspace = true
 ciborium.workspace = true
 hex.workspace = true
+
+[build-dependencies]
+embed-resource = "3"
+data-encoding = { workspace = true }
 
 [lints]
 workspace = true

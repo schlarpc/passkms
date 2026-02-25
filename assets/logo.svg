@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g fill="#4A90D9">
+    <!-- Cloud bumps (key bow) -->
+    <circle cx="22" cy="48" r="14"/>
+    <circle cx="36" cy="42" r="16"/>
+    <circle cx="50" cy="46" r="12"/>
+    <!-- Cloud base + key shaft with integrated teeth -->
+    <path d="
+      M 10,52
+      H 83 Q 88,52 88,57
+      V 62 Q 88,64 86,64
+      H 85 V 72.5 Q 85,74 83.5,74
+      H 79.5 Q 78,74 78,72.5 V 64
+      H 73 V 72.5 Q 73,74 71.5,74
+      H 67.5 Q 66,74 66,72.5 V 64
+      H 15 Q 10,64 10,59 Z
+    "/>
+  </g>
+</svg>

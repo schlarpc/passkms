@@ -16,6 +16,8 @@ use crate::bindings::*;
 use crate::com_factory::PASSKEY_CLSID;
 use crate::util::{pcwstr, wide_nul};
 
+include!(concat!(env!("OUT_DIR"), "/logo.rs"));
+
 /// NTE_NOT_FOUND: The specified item was not found. (0x80090011)
 const NTE_NOT_FOUND: HRESULT = HRESULT(0x80090011_u32.cast_signed());
 
@@ -64,8 +66,7 @@ pub fn register() -> Result<(), HRESULT> {
         "authenticatorGetInfo CBOR blob built"
     );
 
-    // Minimal SVG logo (base64-encoded). The API may require non-null logos.
-    let logo = wide_nul("PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzMzNiIvPjwvc3ZnPg==");
+    let logo = wide_nul(LOGO_SVG_BASE64);
 
     let rp_id = wide_nul("passkms.dev");
 

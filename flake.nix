@@ -53,7 +53,15 @@
         in
         {
           pname = "passkms";
-          src = craneLib.cleanCargoSource ./.;
+          src = let
+            filter = path: type:
+              (craneLib.filterCargoSources path type)
+              || (builtins.match ".*\\.(svg|ico|rc|png)$" path != null);
+          in pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = filter;
+            name = "passkms-source";
+          };
           strictDeps = true;
 
           buildInputs = [
