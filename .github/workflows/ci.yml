@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Nix flake check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - run: nix flake check --print-build-logs
+
+  build-windows:
+    name: Build Windows artifacts
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build passkms-windows
+        run: nix build .#passkms-windows --print-build-logs
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: passkms-windows
+          path: result/bin/passkms-windows.exe
+
+      - name: Build passkms-msix
+        run: nix build .#passkms-msix --print-build-logs
+
+      - name: Upload MSIX package
+        uses: actions/upload-artifact@v4
+        with:
+          name: passkms-msix
+          path: result/*.msix
