@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
-  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
-  IgnorableNamespaces="com uap10">
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="com rescap">
 
   <Identity Name="passkms"
             Publisher="CN=passkms"
@@ -16,19 +17,32 @@
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop"
+                        MinVersion="10.0.19041.0"
+                        MaxVersionTested="10.0.26100.0"/>
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us"/>
+  </Resources>
+
   <Applications>
     <Application Id="App"
                  Executable="passkms-windows.exe"
-                 EntryPoint="windows.fullTrustApplication"
-                 uap10:RuntimeBehavior="packagedClassicApp"
-                 uap10:TrustLevel="mediumIL">
+                 EntryPoint="windows.fullTrustApplication">
+      <uap:VisualElements DisplayName="passkms"
+                          Description="FIDO2 passkey authenticator backed by AWS KMS"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\StoreLogo.png"
+                          Square44x44Logo="Assets\StoreLogo.png"/>
       <Extensions>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
             <com:ExeServer Executable="passkms-windows.exe"
                            Arguments="-PluginActivated"
                            DisplayName="passkms Plugin Authenticator">
-              <com:Class Id="{a3b2c1d0-e4f5-6789-abcd-ef0123456789}"
+              <com:Class Id="a3b2c1d0-e4f5-6789-abcd-ef0123456789"
                          DisplayName="PasskmsPluginAuthenticator"/>
             </com:ExeServer>
           </com:ComServer>
@@ -36,4 +50,8 @@
       </Extensions>
     </Application>
   </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust"/>
+  </Capabilities>
 </Package>

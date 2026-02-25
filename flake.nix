@@ -17,9 +17,14 @@
       url = "github:rustsec/advisory-db";
       flake = false;
     };
+
+    msix-packaging = {
+      url = "github:mozilla/msix-packaging/johnmcpms/signing";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, systems, rust-overlay, crane, advisory-db, ... }:
+  outputs = { self, nixpkgs, systems, rust-overlay, crane, advisory-db, msix-packaging, ... }:
     let
       eachSystem = nixpkgs.lib.genAttrs (import systems);
 
@@ -56,7 +61,7 @@
           src = let
             filter = path: type:
               (craneLib.filterCargoSources path type)
-              || (builtins.match ".*\\.(svg|ico|rc|png)$" path != null);
+              || (builtins.match ".*\\.(svg|ico|rc|png|appxmanifest)$" path != null);
           in pkgs.lib.cleanSourceWith {
             src = ./.;
             filter = filter;
@@ -155,6 +160,45 @@
           '';
         };
 
+      # Build makemsix from Mozilla's msix-packaging fork
+      makemsixFor = system:
+        let pkgs = pkgsFor system;
+        in pkgs.llvmPackages.stdenv.mkDerivation {
+          pname = "makemsix";
+          version = "1.7-mozilla";
+          src = msix-packaging;
+          nativeBuildInputs = [ pkgs.cmake ];
+          buildInputs = [ pkgs.icu ];
+          cmakeFlags = [
+            "-DLINUX=on"
+            "-DMSIX_PACK=on"
+            "-DUSE_VALIDATION_PARSER=on"
+            "-DMSIX_TESTS=off"
+            "-DMSIX_SAMPLES=off"
+            "-DCMAKE_BUILD_TYPE=MinSizeRel"
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+            "-DCMAKE_SKIP_BUILD_RPATH=OFF"
+            "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON"
+            "-DCMAKE_INSTALL_RPATH=${placeholder "out"}/lib"
+          ];
+          # ICU 76+ headers require C++17; the bundled xerces and top-level
+          # CMakeLists.txt both hardcode CMAKE_CXX_STANDARD 14, so patch them.
+          # Also add missing <cstdint> include for modern compilers.
+          postPatch = ''
+            substituteInPlace CMakeLists.txt \
+              --replace-fail 'set(CMAKE_CXX_STANDARD 14)' 'set(CMAKE_CXX_STANDARD 17)'
+            substituteInPlace lib/xerces/CMakeLists.txt \
+              --replace-fail 'set(CMAKE_CXX_STANDARD 14)' 'set(CMAKE_CXX_STANDARD 17)'
+            substituteInPlace src/inc/internal/Encoding.hpp \
+              --replace-fail '#pragma once' $'#pragma once\n#include <cstdint>'
+          '';
+          installPhase = ''
+            mkdir -p $out/bin $out/lib
+            cp bin/makemsix $out/bin/
+            cp lib/libmsix.so $out/lib/
+          '';
+        };
+
     in
     {
       # The main package outputs
@@ -178,6 +222,26 @@
           });
 
           passkms-assets = assetsFor system;
+
+          # MSIX package for Windows distribution
+          passkms-msix =
+            let
+              pkgs = pkgsFor system;
+              makemsix = makemsixFor system;
+              windowsBuild = self.packages.${system}.passkms-windows;
+              assets = assetsFor system;
+            in pkgs.stdenvNoCC.mkDerivation {
+              name = "passkms-msix";
+              nativeBuildInputs = [ makemsix ];
+              buildCommand = ''
+                mkdir -p msix/Assets
+                cp ${windowsBuild}/bin/passkms-windows.exe msix/
+                cp ${assets}/StoreLogo.png msix/Assets/
+                cp ${./crates/passkms-windows/Package.appxmanifest} msix/AppxManifest.xml
+                mkdir -p $out
+                makemsix pack -d msix -p $out/passkms.msix
+              '';
+            };
 
           # Windows cross-compiled build (with cached dependency artifacts)
           passkms-windows =

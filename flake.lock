@@ -31,6 +31,23 @@
         "type": "github"
       }
     },
+    "msix-packaging": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1625629319,
+        "narHash": "sha256-apaNa/P3VpneHjfzxejI8tdNeZ/WDVlunr/3NWTvvgg=",
+        "owner": "mozilla",
+        "repo": "msix-packaging",
+        "rev": "be7e5b303ca51e22f74d539b0b62cd361e33e4de",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mozilla",
+        "ref": "johnmcpms/signing",
+        "repo": "msix-packaging",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1767364772,
@@ -51,6 +68,7 @@
       "inputs": {
         "advisory-db": "advisory-db",
         "crane": "crane",
+        "msix-packaging": "msix-packaging",
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay",
         "systems": "systems"
